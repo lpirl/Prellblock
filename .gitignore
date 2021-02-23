@@ -13,6 +13,7 @@
 /config/*/*.pub
 /config/*/*.pem
 /config/*/*.pfx
+/config/genesis/genesis.yaml
 
 # Data storage
 /data/
