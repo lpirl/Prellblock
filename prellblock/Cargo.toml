@@ -11,6 +11,7 @@ edition = "2018"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+connection = { path = "../connection" }
 balise = { path = "../balise", features = ["server", "client", "tls"] }
 err-derive = "0.2.3"
 futures = "0.3.4"

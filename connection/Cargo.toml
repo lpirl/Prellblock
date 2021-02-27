@@ -9,10 +9,11 @@ license = "MIT OR Apache-2.0"
 
 
 [dependencies]
-tokio = { version = "0.2.19", features = ["rt-core", "io-util", "tcp", "sync", "fs"] }
+async-trait = "0.1.42"
+tokio = { version = "1.2.0", features = ["rt", "io-util", "net", "sync", "fs"] }
 tokio-tls = "0.3.0"
 futures = "0.3.4"
 hex = "0.4.2"
 
 [dev-dependencies]
-tokio = { version = "0.2.19", features = ["macros"] }
+tokio = { version = "1.2.0", features = ["macros"] }

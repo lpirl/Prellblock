@@ -1,10 +1,12 @@
 
 use std::net::SocketAddr;
 use futures::executor::block_on;
+use futures::io::Error;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
-use tokio::prelude::*;
-use hex::encode;
+use tokio::io::AsyncWriteExt;
+use tokio::io::AsyncReadExt;
+use async_trait::async_trait;
 
 pub struct Message {
     data : Vec<u8>
@@ -33,7 +35,7 @@ impl Message {
     }
 }
 /// Communication interface to peer 
-pub trait Connection {
+pub trait Connection: Send {
 
     fn local_addr(&self) -> SocketAddr;
     
@@ -46,12 +48,13 @@ pub trait Connection {
 }
 
 /// Interface for raw or trdp connections
+#[async_trait]
 pub trait Listener: Send + 'static {
 
     fn port(&self) -> u16;
 
     /// accept new connection
-    fn accept(&mut self) -> Box<dyn Connection>;
+    async fn accept(&mut self) -> Result<Box<dyn Connection>,Error>;
 
 }
 
@@ -147,6 +150,7 @@ impl RawTcpListener {
     }
 }
 
+#[async_trait]
 impl Listener for RawTcpListener {
 
 
@@ -155,14 +159,13 @@ impl Listener for RawTcpListener {
         return self.listener.local_addr().unwrap().port();
     }
 
-    fn accept(&mut self) -> Box<dyn Connection>
+    async fn accept(&mut self) -> Result<Box<dyn Connection>,Error>
     {
-        let stream_future = self.listener.accept();
-        let (stream,_) = block_on(stream_future).unwrap();
+        let (stream ,_) = self.listener.accept().await?;
 
         //TODO add tls layer
         
-        return Box::new(RawTcpConnection::new(stream));
+        return Ok(Box::new(RawTcpConnection::new(stream)));
     }
 
 }

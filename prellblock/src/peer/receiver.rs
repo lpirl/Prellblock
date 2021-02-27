@@ -7,7 +7,7 @@ use balise::{
 };
 
 use std::sync::Arc;
-use tokio::net::TcpListener;
+use connection::listener::Listener;
 
 /// A receiver (server) instance.
 ///
@@ -29,7 +29,7 @@ impl Receiver {
     }
 
     /// The main server loop.
-    pub async fn serve(self, listener: &mut TcpListener) -> Result<(), balise::Error> {
+    pub async fn serve(self, listener: &mut dyn Listener) -> Result<(), balise::Error> {
         let tls_identity = self.tls_identity.clone();
         let server = Server::new(
             handler!(PeerMessage, {

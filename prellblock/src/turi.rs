@@ -7,7 +7,7 @@ use balise::{
 };
 use prellblock_client_api::{message, ClientMessage, Pong, Transaction};
 use std::sync::Arc;
-use tokio::net::TcpListener;
+use connection::listener::Listener;
 
 type Response<R> = Result<<R as balise::Request<ClientMessage>>::Response, BoxError>;
 
@@ -43,7 +43,7 @@ impl Turi {
     }
 
     /// The main server loop.
-    pub async fn serve(self, listener: &mut TcpListener) -> Result<(), balise::Error> {
+    pub async fn serve(self, listener: &mut dyn Listener) -> Result<(), balise::Error> {
         let tls_identity = self.tls_identity.clone();
         let server = Server::new(
             handler!(ClientMessage, {
