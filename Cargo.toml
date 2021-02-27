@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "connection",
     "balise",
     "genesis-wizard",
     "pinxit",

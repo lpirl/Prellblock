@@ -1,0 +1,18 @@
+[package]
+name = "connection"
+version = "0.1.0"
+authors = [
+    "Dirk friedenberger <projekte@frittenburger.de>",
+]
+edition = "2018"
+license = "MIT OR Apache-2.0"
+
+
+[dependencies]
+tokio = { version = "0.2.19", features = ["rt-core", "io-util", "tcp", "sync", "fs"] }
+tokio-tls = "0.3.0"
+futures = "0.3.4"
+hex = "0.4.2"
+
+[dev-dependencies]
+tokio = { version = "0.2.19", features = ["macros"] }
