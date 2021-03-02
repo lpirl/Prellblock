@@ -7,6 +7,14 @@ authors = [
 edition = "2018"
 license = "MIT OR Apache-2.0"
 
+[[bin]]
+name = "md_listener_raw"
+path = "src/md_listener_raw.rs"
+
+
+[[bin]]
+name = "md_sender_raw"
+path = "src/md_sender_raw.rs"
 
 [dependencies]
 async-trait = "0.1.42"
@@ -15,6 +23,9 @@ tokio-tls = "0.3.0"
 futures = "0.3.4"
 hex = "0.4.2"
 log = "0.4.8"
+trdp-rs = { path = "../../trdp-rs" }
+libc = "0.2"
+lazy_static = "1.4.0"
 
 [dev-dependencies]
 tokio = { version = "1.2.0", features = ["macros"] }

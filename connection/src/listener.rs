@@ -214,30 +214,4 @@ impl Connector for RawTcpConnector {
 }
 
 
-/*
-/// A TRDP listener implementation.
-///
-/// The `Listener` is an wrapper for  TRDP protocol.
-pub struct TrdpTcpListener {
-    //peer_address: SocketAddr
-}
 
-impl Listener for TrdpTcpListener {
-   
-    fn init(&mut self)
-    {
-        println!("init");
-    }
-
-    fn port(&self) -> u16
-    {
-        return 0;
-    }
-
-    fn accept(&mut self) -> Box<dyn Connection>
-    {
-        unimplemented!("accept not implemented");
-    }
-}
-
-*/
