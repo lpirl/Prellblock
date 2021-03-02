@@ -8,6 +8,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::io::AsyncReadExt;
 use async_trait::async_trait;
 
+
 pub struct Message {
     data : Vec<u8>
 } 
@@ -57,6 +58,17 @@ pub trait Listener: Send + 'static {
     async fn accept(&mut self) -> Result<Box<dyn Connection>,Error>;
 
 }
+
+
+/// Interface for raw or trdp connections
+#[async_trait]
+pub trait Client: Send + 'static {
+
+    /// create new connection
+    async fn connect(&mut self) -> Result<Box<dyn Connection>,Error>;
+
+}
+
 
 pub struct RawTcpConnection {
     stream: TcpStream
@@ -163,12 +175,37 @@ impl Listener for RawTcpListener {
     {
         let (stream ,_) = self.listener.accept().await?;
 
-        //TODO add tls layer
-        
         return Ok(Box::new(RawTcpConnection::new(stream)));
     }
 
 }
+
+
+pub struct RawTcpClient {
+    address: SocketAddr
+}
+
+impl RawTcpClient {
+
+    /// Create a new RawTcpListener instance.
+    #[must_use]
+    pub const fn new(address: SocketAddr) -> Self {
+        Self {
+            address
+        }
+    }
+}
+
+#[async_trait]
+impl Client for RawTcpClient {
+
+    async fn connect(&mut self) -> Result<Box<dyn Connection>,Error>
+    {
+        let stream = TcpStream::connect(self.address).await?;
+        return Ok(Box::new(RawTcpConnection::new(stream)));
+    }
+}
+
 
 /*
 /// A TRDP listener implementation.
