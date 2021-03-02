@@ -42,7 +42,7 @@ pub trait Connection: Send {
     
     fn peer_addr(&self) -> SocketAddr;
 
-    fn read_message(&mut self) -> Message;
+    fn read_message(&mut self) -> Result<Message,Error>;
 
     fn write_message(&mut self,msg: &Message);
 
@@ -62,7 +62,7 @@ pub trait Listener: Send + 'static {
 
 /// Interface for raw or trdp connections
 #[async_trait]
-pub trait Client: Send + 'static {
+pub trait Connector: Send + 'static {
 
     /// create new connection
     async fn connect(&mut self) -> Result<Box<dyn Connection>,Error>;
@@ -101,20 +101,28 @@ impl Connection for RawTcpConnection {
   
   
 
-    fn read_message(&mut self) -> Message
+    fn read_message(&mut self) -> Result<Message,Error>
     {
 
         let mut len_buf = [0; 4];
 
-        block_on(self.stream.read_exact(&mut len_buf)).unwrap();
+        let res = block_on(self.stream.read_exact(&mut len_buf));
+
+        match res {
+            Ok(_) => {},
+            Err(err) => return Err(err)
+        };
+
+        log::trace!("read message: len {:?}", len_buf);
 
         let len = u32::from_le_bytes(len_buf) as usize;
 
         let mut msg_buf = vec![0; len];
 
         block_on(self.stream.read_exact(&mut msg_buf)).unwrap();
+        log::trace!("read message: buf {:?}", msg_buf);
 
-        return Message::new(&msg_buf);
+        return Ok(Message::new(&msg_buf));
 
     }
 
@@ -127,12 +135,11 @@ impl Connection for RawTcpConnection {
         let mut len_buf = [0; 4];
         len_buf.copy_from_slice(&size.to_le_bytes());
 
+        log::trace!("Write message: len {:?}", len_buf);
         block_on(self.stream.write_all(&len_buf)).unwrap();
 
+        log::trace!("Write message: buf {:?}", buf);
         block_on(self.stream.write_all(&buf)).unwrap();
-
-
-       
 
     }
 
@@ -181,11 +188,11 @@ impl Listener for RawTcpListener {
 }
 
 
-pub struct RawTcpClient {
+pub struct RawTcpConnector {
     address: SocketAddr
 }
 
-impl RawTcpClient {
+impl RawTcpConnector {
 
     /// Create a new RawTcpListener instance.
     #[must_use]
@@ -197,7 +204,7 @@ impl RawTcpClient {
 }
 
 #[async_trait]
-impl Client for RawTcpClient {
+impl Connector for RawTcpConnector {
 
     async fn connect(&mut self) -> Result<Box<dyn Connection>,Error>
     {

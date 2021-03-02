@@ -144,10 +144,15 @@ where
 
             // read message
 
-            let mut recv_message : Message = connection.read_message();
+            let res  = connection.read_message();
            
-            log::info!("Read message: {}", recv_message.to_hex());
+            match res {
+                Ok(_) => {}
+                Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => break,
+                Err(err) => return Err(Error::IO(err)),
+            }
 
+            let recv_message : Message = res.unwrap();
             let buf = recv_message.to_buffer();   //vec![0; len];
 
             // handle the request
@@ -156,16 +161,19 @@ where
                 Err(err) => Err(err.to_string()),
             };
 
-            let vec : Vec<u8> = res.unwrap();
-            let mut resp_message : Message = Message::new(&vec);
+            // serialize response
+            let vec = vec![0; 0];
+            let vec = postcard::serialize_with_flavor(&res, postcard::flavors::StdVec(vec))?;
+
+            let resp_message : Message = Message::new(&vec);
             
             connection.write_message(&resp_message);
-            log::info!("Wrote message: {}", resp_message.to_hex());
 
             // Simulate connection drop
             // let _ = stream.shutdown(std::net::Shutdown::Both);
             // break;
         }
+        Ok(())
     }
 
     async fn handle_request(&self, addr: &SocketAddr, req: &[u8]) -> Result<Vec<u8>, Error> {

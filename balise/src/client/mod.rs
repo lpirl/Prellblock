@@ -7,10 +7,14 @@ use serde::Serialize;
 use std::{
     convert::TryInto,
     marker::{PhantomData, Unpin},
-    net::SocketAddr,
+    net::{SocketAddr, ToSocketAddrs},
     time::{Duration, Instant},
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+
+
+use connection::listener::{ Message, Connection , Connector, RawTcpConnector };
+
 
 /// A client instance.
 ///
@@ -46,13 +50,19 @@ impl<T> Client<T> {
         Req: Request<T>,
         T: Serialize,
     {
-        let (mut stream, addr) = self.stream().await?;
 
-        log::trace!("Sending request to {}: {:?}", addr, req);
-        let res = send_request(&mut *stream, req).await?;
+        let address = SocketAddr::new(self.addr.host.to_string().parse().unwrap(), self.addr.port);
 
-        log::trace!("Received response from {}: {:?}", addr, res);
-        stream.done().await;
+        let mut connector = RawTcpConnector::new(address);
+        let connection = connector.connect().await?;
+
+        //let (mut stream, addr) = self.stream().await?;
+
+        log::trace!("Sending request to {}: {:?}", address, req);
+        let res = send_request(connection, req).await?;
+
+        log::trace!("Received response from {}: {:?}", address, res);
+        //stream.done().await;
         Ok(res?)
     }
 
@@ -116,32 +126,30 @@ impl<T> Client<T> {
     }
 }
 
-async fn send_request<S, Req, T>(
-    stream: &mut S,
+async fn send_request<Req, T>(
+    mut connection: Box<dyn Connection>,
     req: Req,
 ) -> Result<Result<Req::Response, String>, Error>
 where
-    S: AsyncRead + AsyncWrite + Unpin,
     Req: Request<T>,
     T: Serialize,
 {
+
+
     let req: T = req.into();
+
     // serialize request
-    let vec = vec![0; 4];
-    let mut vec = postcard::serialize_with_flavor(&req, postcard::flavors::StdVec(vec))?;
-    // send request
-    let size: u32 = (vec.len() - 4)
-        .try_into()
-        .map_err(|_| Error::MessageTooLong)?;
-    vec[..4].copy_from_slice(&size.to_le_bytes());
-    stream.write_all(&vec).await?;
-    // read response length
-    let mut len_buf = [0; 4];
-    stream.read_exact(&mut len_buf).await?;
-    let len = u32::from_le_bytes(len_buf) as usize;
-    // read message
-    let mut buf = vec![0; len];
-    stream.read_exact(&mut buf).await?;
+    let vec = vec![0; 0];
+    let mut vec = postcard::serialize_with_flavor(&req,postcard::flavors::StdVec(vec))?;
+
+    let mut resp_message : Message = Message::new(&vec);
+            
+    connection.write_message(&resp_message);
+
+    let mut recv_message : Message = connection.read_message().unwrap();
+           
+
+    let buf = recv_message.to_buffer();   //vec![0; len];
 
     let res = match postcard::from_bytes(&buf)? {
         Ok(data) => Ok(postcard::from_bytes(data)?),
