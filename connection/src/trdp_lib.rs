@@ -4,6 +4,8 @@ use std::ffi::CStr;
 use std::ffi::CString;
 use std::ptr;
 use std::mem;
+use std::fmt::Write;
+
 use lazy_static::lazy_static; // 1.4.0
 use std::sync::Mutex;
 use trdp_rs::*;
@@ -25,51 +27,39 @@ pub unsafe extern "C"  fn dbg_out (
     let cat_str = ["**Error:", "Warning:", "   Info:", "  Debug:", "   User:"];
 
     let c_msg: &CStr = CStr::from_ptr(p_msg_str) ;
-    let msg_slice: &str = c_msg.to_str().unwrap();
-
-    if category != 3 {
-        println!("{} {}", cat_str[category as usize], msg_slice);
-    }
-    /*
+    let msg_slice: &str = c_msg.to_str().unwrap().trim_end();
     match category {
-        //VOS_LOG_INFO => log::info!("{}", msg_slice),
-        VOS_LOG_DBG => log::trace!("{}", msg_slice),
-        _ => println!("{} {}", cat_str[category as usize], msg_slice),
+        0 /* VOS_LOG_ERROR */ => log::error!("{}", msg_slice),
+        1 /* VOS_LOG_WARNING */=> log::warn!("{}", msg_slice),
+        2 /* VOS_LOG_INFO */=> log::info!("{}", msg_slice),
+        3 /* VOS_LOG_DBG */ => log::trace!("{}", msg_slice),
+        _ => log::error!("{} {}", cat_str[category as usize], msg_slice),
     }
 
-    */
-/*
-    if category != 3 /* VOS_LOG_DBG */
-    {
-        /* we filter some more info we're not interested in */
-
-        let c_time: &CStr =  CStr::from_ptr(p_time) ;
-        let time_slice: &str = c_time.to_str().unwrap();
-        println!("{} {} {}", time_slice, cat_str[category as usize], msg_slice);
-        
-    }
-    */
 }
 
 
+pub fn session_id_to_string(session_id : [u8;16]) -> String {
+    
+    let mut s = String::new();
+    for b in session_id.iter() {
+        write!(&mut s, "{:X}", *b).expect("Unable to write");
+    }
+    
+    return s;
+}
 
 
+pub fn message_to_string(p_data: *mut u8,data_size :u32) -> String {
 
-
-pub fn dump_message(msg : &str,p_data: *mut u8,data_size :u32) {
-
-
-    let mut data = String::from("");
-
-
-        for i in 0..(data_size - 1) {
-            unsafe {
-                data.push(*p_data.offset(i as isize) as char);
-            }
+    let mut s = String::new();
+    for i in 0..data_size {
+        unsafe {
+            write!(&mut s, "{:X}", *p_data.offset(i as isize)).expect("Unable to write");
         }
-
-    println!("{} {:X?}", msg, data);
-   
+    }
+    
+    return s;
 
 }
 
@@ -143,10 +133,6 @@ lazy_static! {
 unsafe extern "C" fn md_callback (_a: *mut libc::c_void, app_handle : TRDP_APP_SESSION_T, p_msg: *const TRDP_MD_INFO_T, p_data: *mut u8, data_size :u32)
 {
 
-
-    println!("{} seq:{} session {:X?}", (*p_msg).srcIpAddr, (*p_msg).seqCount, (*p_msg).sessionId);
-
-
     let app : usize = 0;
     let max : usize = app_handles.lock().unwrap().len();
     for app in 0..max {
@@ -154,46 +140,39 @@ unsafe extern "C" fn md_callback (_a: *mut libc::c_void, app_handle : TRDP_APP_S
             break;
         }
     }
-
-
+   
     //Add temp Session
     let mut session : Session = Session::new((*p_msg).sessionId,(*p_msg).srcIpAddr,(*p_msg).destIpAddr);
     app_handles.lock().unwrap()[app].sessions.push(session);
 
     let ses = app_handles.lock().unwrap()[app].last_session();
 
+    log::info!("Callback app-handle: {} session-handle: {} session-id: {}", app,ses,session_id_to_string((*p_msg).sessionId));
+
+
     /*    Check why we have been called    */
     match (*p_msg).resultCode as u32 {
         // Match a single value
-        TRDP_NO_ERR => match (*p_msg).msgType as u32 {
-            TRDP_MSG_MR => {
+        TRDP_NO_ERR => {
 
-                dump_message("MR Request with reply",p_data,data_size);
-
-
-                let mut buf : Vec<u8> = vec![];
-                for i in 0..data_size {
-                    buf.push(*p_data.offset(i as isize) as u8);
-                }
-
-                let message : Message = Message::new(&buf);
-                app_handles.lock().unwrap()[app].sessions[ses].append(message);
-               
-            },
-            TRDP_MSG_MP => {
-                dump_message("MD Reply without confirmation",p_data,data_size);
-
-                let mut buf : Vec<u8> = vec![];
-                for i in 0..data_size {
-                    buf.push(*p_data.offset(i as isize) as u8);
-                }
-
-                let message : Message = Message::new(&buf);
-                
-                app_handles.lock().unwrap()[app].sessions[ses].append(message);
+            //Recv message 
+            let mut buf : Vec<u8> = vec![];
+            for i in 0..data_size {
+                buf.push(*p_data.offset(i as isize) as u8);
             }
-            _ => panic!("message error {}",(*p_msg).msgType)
-        }
+            let message : Message = Message::new(&buf);
+
+            //Append to Session
+            app_handles.lock().unwrap()[app].sessions[ses].append(message);
+
+            match (*p_msg).msgType as u32 {
+                TRDP_MSG_MR => log::info!("MR Request with reply {}",message_to_string(p_data,data_size)),
+                TRDP_MSG_MP => log::info!("MD Reply without confirmation {}",message_to_string(p_data,data_size)),
+                _ => panic!("message error {}",(*p_msg).msgType)
+            }
+
+
+        },
         _ => panic!("md_callback error {}",(*p_msg).resultCode)
     }
 }
@@ -421,7 +400,7 @@ pub fn trdp_send_reply(app: usize,session : &Session,message : &Message)
             src_uri.as_mut_ptr() as *mut i8);
         match result {
             0 => {}
-            _ => panic!("tlm_reply error"),
+            _ => panic!("tlm_reply error {}",result),
         }
     }
 
