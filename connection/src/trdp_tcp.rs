@@ -73,6 +73,12 @@ impl Connection for TrdpTcpClientConnection {
 
 }
 
+impl Drop for TrdpTcpClientConnection {
+    fn drop(&mut self) {
+        trdp_disconnect(self.app);
+    }
+}
+
 pub struct TrdpTcpListenerConnection {
     
     app: usize,
@@ -165,8 +171,7 @@ impl Listener for TrdpTcpListener {
 
     async fn accept(&mut self) -> Result<Box<dyn Connection>,Error>
     {
-      
-        let session : Session = trdp_accept(self.app).await;
+        let session : Session = trdp_accept(self.app).await?;
 
         return Ok(Box::new(TrdpTcpListenerConnection::new(self.app,session)));
     }

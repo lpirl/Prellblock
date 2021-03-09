@@ -20,7 +20,7 @@ unsafe extern "C" fn md_callback (_a: *mut libc::c_void, _app_handle : TRDP_APP_
     match (*p_msg).resultCode as u32 {
         TRDP_NO_ERR => match (*p_msg).msgType as u32 {
             TRDP_MSG_MP => {
-                dump_message("MD Reply without confirmation",p_data,data_size);
+                println!("MD Reply without confirmation {}",message_to_string(p_data,data_size));
             }
             _ => panic!("message error {}",(*p_msg).msgType) 
 

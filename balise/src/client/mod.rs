@@ -15,6 +15,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use connection::listener::{ Message, Connection , Connector, RawTcpConnector };
 
+use connection::trdp_tcp::TrdpTcpConnector;
 
 /// A client instance.
 ///
@@ -53,7 +54,7 @@ impl<T> Client<T> {
 
         let address = SocketAddr::new(self.addr.host.to_string().parse().unwrap(), self.addr.port);
 
-        let mut connector = RawTcpConnector::new(address);
+        let mut connector = TrdpTcpConnector::new(address);
         let connection = connector.connect().await?;
 
         //let (mut stream, addr) = self.stream().await?;

@@ -23,7 +23,7 @@ unsafe extern "C" fn md_callback (_a: *mut libc::c_void, app_handle : TRDP_APP_S
         TRDP_NO_ERR => match (*p_msg).msgType as u32 {
             TRDP_MSG_MR => {
 
-                dump_message("MR Request with reply",p_data,data_size);
+                println!("MR Request with reply {}",message_to_string(p_data,data_size));
                
                 let response_msg = CString::new("I'm fine, thanx!").unwrap().into_bytes_with_nul();
                 let mut src_uri = CString::new("md_listener").unwrap().into_bytes_with_nul();
