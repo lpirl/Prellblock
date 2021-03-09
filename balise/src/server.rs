@@ -3,17 +3,15 @@
 use crate::{Error, Request};
 use serde::de::DeserializeOwned;
 use std::{
-    convert::TryInto,
     fmt::Debug,
     future::Future,
     io,
-    marker::{PhantomData, Unpin},
+    marker::PhantomData,
     net::SocketAddr,
     sync::Arc,
 };
 use tokio::{
     fs,
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpListener,
 };
 

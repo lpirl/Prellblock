@@ -10,6 +10,7 @@ use std::{
     net::{SocketAddr, ToSocketAddrs},
     time::{Duration, Instant},
 };
+use std::fmt::Write;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 
@@ -52,7 +53,16 @@ impl<T> Client<T> {
         T: Serialize,
     {
 
-        let address = SocketAddr::new(self.addr.host.to_string().parse().unwrap(), self.addr.port);
+        let mut adr_str = String::new();
+        write!(&mut adr_str, "{}", self.addr).expect("Unable to write");
+        
+        let resolved_addresses: Vec<_> = adr_str
+            .to_socket_addrs()
+            .expect("Unable to resolve peer address")
+            .collect();
+        let resolved_address = resolved_addresses.first().unwrap();
+        let address = *resolved_address;
+        //let address = SocketAddr::new(self.addr.host.to_string(), self.addr.port);
 
         let mut connector = TrdpTcpConnector::new(address);
         let connection = connector.connect().await?;
@@ -141,13 +151,13 @@ where
 
     // serialize request
     let vec = vec![0; 0];
-    let mut vec = postcard::serialize_with_flavor(&req,postcard::flavors::StdVec(vec))?;
+    let vec = postcard::serialize_with_flavor(&req,postcard::flavors::StdVec(vec))?;
 
     let mut resp_message : Message = Message::new(&vec);
             
     connection.write_message(&resp_message);
 
-    let mut recv_message : Message = connection.read_message().unwrap();
+    let recv_message : Message = connection.read_message().unwrap();
            
 
     let buf = recv_message.to_buffer();   //vec![0; len];

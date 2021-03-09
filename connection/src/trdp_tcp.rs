@@ -204,6 +204,7 @@ impl Connector for TrdpTcpConnector {
         let dest_ip: Ipv4Addr;
         match self.address.ip() {
             V4(ip) => dest_ip = ip,
+            //V6(ip6) => dest_ip = ip6.to_ipv4(), localhost => Some(0.0.0.1) ?Makes sense?
             _ => panic!("ipv6 not supportet")
         }
 
