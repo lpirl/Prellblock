@@ -23,7 +23,7 @@ tokio-tls = "0.3.0"
 futures = "0.3.4"
 hex = "0.4.2"
 log = "0.4.8"
-trdp-rs = { path = "../../trdp-rs" }
+trdp-rs = { path = "../trdp-rs" }
 libc = "0.2"
 lazy_static = "1.4.0"
 
