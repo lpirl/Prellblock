@@ -94,6 +94,7 @@ impl Session {
 
 struct AppHandle {
     handle : TRDP_APP_SESSION_T,
+    id : u16,
     sessions : Vec<Session>
 }
 
@@ -102,10 +103,11 @@ unsafe impl Send for AppHandle {}
 impl AppHandle {
      /// Create a new AppHandle instance.
      #[must_use]
-     pub fn new(handle : TRDP_APP_SESSION_T) -> Self {
+     pub fn new(handle : TRDP_APP_SESSION_T,id : u16) -> Self {
           
          Self {
             handle,
+            id,
             sessions : vec![]
          }
      }
@@ -126,28 +128,86 @@ impl AppHandle {
 
 }
 
+struct AppHandleContainer {
+    used : bool,
+    ids : u16,
+    handles : Vec<AppHandle>
+}
+
+impl AppHandleContainer {
+
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            used : false,
+            ids: 0,
+            handles : vec![]
+        }
+    }
+
+    pub fn is_first_handle(&self) -> bool {
+        !self.used
+    }
+
+    pub fn create_handle(&mut self,app_handle : TRDP_APP_SESSION_T) -> u16 {
+        self.used = true;
+        self.ids += 1;
+        self.handles.push(AppHandle::new(app_handle,self.ids));
+        return self.ids;
+    }
+
+    pub fn remove_handle(&mut self, app_id : u16) -> AppHandle {
+
+        for ix in 0..self.handles.len() {
+            if self.handles[ix].id == app_id {
+                return self.handles.remove(ix);
+            }
+        }
+        panic!("app id {} not found",app_id)
+    }
+
+    pub fn get_by_id(&mut self, app_id : u16) -> &mut AppHandle {
+        let iter = self.handles.iter_mut();
+
+        for handle in iter {
+           if(handle.id == app_id)
+           {
+                return handle;
+           }
+        }
+        panic!("app id {} not found",app_id)
+    }
+    pub fn get_by_addr(&mut self, app_handle : TRDP_APP_SESSION_T) -> &mut AppHandle {
+        
+        let iter = self.handles.iter_mut();
+
+        for handle in iter {
+           if(handle.handle == app_handle)
+           {
+                return handle;
+           }
+        }
+        panic!("app handle {:?} not found",app_handle)
+    }
+    
+}
+
+
 lazy_static! {
-    static ref app_handles: Mutex<Vec<AppHandle>> = Mutex::new(vec![]);
+    static ref app_handles: Mutex<AppHandleContainer> = Mutex::new(AppHandleContainer::new());
 }
 
 unsafe extern "C" fn md_callback (_a: *mut libc::c_void, app_handle : TRDP_APP_SESSION_T, p_msg: *const TRDP_MD_INFO_T, p_data: *mut u8, data_size :u32)
 {
 
-    let mut app : usize = 0;
-    let max : usize = app_handles.lock().unwrap().len();
-    loop {
-        println!("{:?} == {:?}",app_handles.lock().unwrap()[app].handle,app_handle);
-        if app_handles.lock().unwrap()[app].handle == app_handle {
-            break;
-        }
-        app = app + 1;
-    }
-   
-    //Add temp Session
+
+    let app: u16  = app_handles.lock().unwrap().get_by_addr(app_handle).id;
+
+    //Create Message Session
     let mut session : Session = Session::new((*p_msg).sessionId,(*p_msg).srcIpAddr,(*p_msg).destIpAddr);
     
 
-    log::info!("Callback app-handle: {} session-id: {}", app,session_id_to_string((*p_msg).sessionId));
+    log::info!("Callback app_id: {} session-id: {}", app,session_id_to_string((*p_msg).sessionId));
 
 
     /*    Check why we have been called    */
@@ -176,14 +236,14 @@ unsafe extern "C" fn md_callback (_a: *mut libc::c_void, app_handle : TRDP_APP_S
         _ => panic!("md_callback error {}",(*p_msg).resultCode)
     }
 
-    app_handles.lock().unwrap()[app].sessions.push(session);
+    app_handles.lock().unwrap().get_by_id(app).sessions.push(session);
 
 }
 
 
 
 
-fn trdp_open(own_ip: TRDP_IP_ADDR_T,port : u16) -> usize {
+fn trdp_open(own_ip: TRDP_IP_ADDR_T,port : u16) -> u16 {
 
     let mut app_handle: TRDP_APP_SESSION_T = ptr::null_mut();
 
@@ -231,14 +291,8 @@ fn trdp_open(own_ip: TRDP_IP_ADDR_T,port : u16) -> usize {
         maxNumSessions: 10 as u32,           // Maximal number of replier sessions 
     };
 
-
-
-    let app : usize = handles.len();
-
-    log::info!("app_handles {}",app);
-
     unsafe {
-        if(app == 0)
+        if handles.is_first_handle()
         {
             let result = tlc_init(Some(dbg_out), ptr::null_mut(), &dynamic_config as *const _);
             match result {
@@ -264,22 +318,21 @@ fn trdp_open(own_ip: TRDP_IP_ADDR_T,port : u16) -> usize {
         }
     }
 
-    handles.push(AppHandle::new(app_handle));
+    return handles.create_handle(app_handle);
 
-    return app;
 }
 
-pub fn trdp_listener(own_ip: TRDP_IP_ADDR_T, port : u16) -> usize {
+pub fn trdp_listener(own_ip: TRDP_IP_ADDR_T, port : u16) -> u16 {
     
 
     let mut listen_tcp: TRDP_LIS_T = ptr::null_mut();
     let com_id = MD_COMID1;
     
-    let app : usize = trdp_open(own_ip,port);
+    let app : u16 = trdp_open(own_ip,port);
 
-    log::info!("trdp_open {}",app);
+    log::info!("trdp_listener port: {} app_id: {}",port,app);
 
-    let app_handle: TRDP_APP_SESSION_T = app_handles.lock().unwrap()[app].handle;
+    let app_handle: TRDP_APP_SESSION_T = app_handles.lock().unwrap().get_by_id(app).handle;
 
 
     unsafe {    
@@ -305,7 +358,7 @@ pub fn trdp_listener(own_ip: TRDP_IP_ADDR_T, port : u16) -> usize {
 
 fn trdp_handle(app_handle: TRDP_APP_SESSION_T)
 {
-    log::info!("trdp_handle app: {:?}",app_handle);
+    log::trace!("trdp_handle app: {:?}",app_handle);
 
     unsafe {
 
@@ -350,22 +403,22 @@ fn trdp_handle(app_handle: TRDP_APP_SESSION_T)
     }
 }
 
-pub fn trdp_accept(app : usize) -> tokio::task::JoinHandle<Session> {
+pub fn trdp_accept(app : u16) -> tokio::task::JoinHandle<Session> {
 
     return tokio::task::spawn_blocking(move || {
         loop {
 
 
-            let app_handle: TRDP_APP_SESSION_T = app_handles.lock().unwrap()[app].handle;
+            let app_handle: TRDP_APP_SESSION_T = app_handles.lock().unwrap().get_by_id(app).handle;
             trdp_handle(app_handle);
     
-            let result = app_handles.lock().unwrap()[app].sessions.pop();
+            let result = app_handles.lock().unwrap().get_by_id(app).sessions.pop();
     
     
             match result {
                 None => {},
                 Some(session) => {
-                    log::info!("Accept new Session {} {:?}",app,session.session_id);
+                    log::info!("Accept new session app_id: {} session-id: {}", app,session_id_to_string(session.session_id));
                     return session;
                 }
             } 
@@ -375,14 +428,14 @@ pub fn trdp_accept(app : usize) -> tokio::task::JoinHandle<Session> {
     
 }
 
-pub fn trdp_wait_response(app : usize,session_id : TRDP_UUID_T) -> Session {
+pub fn trdp_wait_response(app : u16,session_id : TRDP_UUID_T) -> Session {
 
-    let app_handle: TRDP_APP_SESSION_T = app_handles.lock().unwrap()[app].handle;
+    let app_handle: TRDP_APP_SESSION_T = app_handles.lock().unwrap().get_by_id(app).handle;
 
     loop {
         trdp_handle(app_handle);
        
-        match app_handles.lock().unwrap()[app].pop_session(session_id) {
+        match app_handles.lock().unwrap().get_by_id(app).pop_session(session_id) {
             None => {},
             Some(session) => { return session },
         }
@@ -391,11 +444,11 @@ pub fn trdp_wait_response(app : usize,session_id : TRDP_UUID_T) -> Session {
     
 }
 
-pub fn trdp_connect(own_ip: TRDP_IP_ADDR_T,port : u16) -> usize {
+pub fn trdp_connect(own_ip: TRDP_IP_ADDR_T,port : u16) -> u16 {
 
     let com_id = MD_COMID1;
     
-    let app : usize = trdp_open(own_ip,port);
+    let app : u16 = trdp_open(own_ip,port);
 
     log::info!("Connect {}",app);
 
@@ -403,26 +456,26 @@ pub fn trdp_connect(own_ip: TRDP_IP_ADDR_T,port : u16) -> usize {
 }
 
 
-pub fn trdp_disconnect(app: usize) {
+pub fn trdp_disconnect(app: u16) {
 
     log::info!("Disconnect {}",app);
 
-    /*
-    let app_handle: TRDP_APP_SESSION_T = app_handles.lock().unwrap()[app].handle;
+    let app_handle : AppHandle = app_handles.lock().unwrap().remove_handle(app);
+
     unsafe {
-        let result = tlc_closeSession(app_handle);
+        let result = tlc_closeSession(app_handle.handle);
         match result {
             0 => {}
             _ => panic!("tlc_closeSession error {}",result),
         }
     }
-    */
+
 }
 
 
-pub fn trdp_send_reply(app: usize,session : &Session,message : &Message) 
+pub fn trdp_send_reply(app: u16,session : &Session,message : &Message) 
 {
-    let app_handle: TRDP_APP_SESSION_T = app_handles.lock().unwrap()[app].handle;
+    let app_handle: TRDP_APP_SESSION_T = app_handles.lock().unwrap().get_by_id(app).handle;
 
     let buf = message.to_buffer();
     let com_id = MD_COMID1;
@@ -448,11 +501,11 @@ pub fn trdp_send_reply(app: usize,session : &Session,message : &Message)
 
 }
 
-pub fn trdp_send_request(app : usize,dest_ip: TRDP_IP_ADDR_T,message : &Message) -> TRDP_UUID_T
+pub fn trdp_send_request(app : u16,dest_ip: TRDP_IP_ADDR_T,message : &Message) -> TRDP_UUID_T
 {
     log::info!("Send request {}",app);
 
-    let app_handle: TRDP_APP_SESSION_T = app_handles.lock().unwrap()[app].handle;
+    let app_handle: TRDP_APP_SESSION_T = app_handles.lock().unwrap().get_by_id(app).handle;
 
     let mut session_id : TRDP_UUID_T =  [0; 16];
     let delay : u32 = 20000000;  //2000000  TODO why 2000000 is not sufficient

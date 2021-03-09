@@ -13,7 +13,7 @@ use crate::trdp_lib::*;
 
 pub struct TrdpTcpClientConnection {
     
-    app: usize,
+    app: u16,
     ip: Ipv4Addr,
     session_id: TRDP_UUID_T
 }
@@ -21,7 +21,7 @@ pub struct TrdpTcpClientConnection {
 impl TrdpTcpClientConnection {
 
     /// Create a new TrdpTcpClientConnection instance.
-    pub const fn new(app: usize,ip: Ipv4Addr) -> Self {
+    pub const fn new(app: u16,ip: Ipv4Addr) -> Self {
 
         Self {
             app,
@@ -81,14 +81,14 @@ impl Drop for TrdpTcpClientConnection {
 
 pub struct TrdpTcpListenerConnection {
     
-    app: usize,
+    app: u16,
     session: Session
 }
 
 impl TrdpTcpListenerConnection {
 
     /// Create a new TrdpTcpConnection instance.
-    pub const fn new(app: usize,session: Session) -> Self {
+    pub const fn new(app: u16,session: Session) -> Self {
         Self {
             app,
             session 
@@ -136,7 +136,8 @@ impl Connection for TrdpTcpListenerConnection  {
 ///
 /// The `Listener` is an wrapper for  TRDP protocol.
 pub struct TrdpTcpListener {
-    app : usize
+    app : u16,
+    port : u16
 }
 
 
@@ -152,10 +153,11 @@ impl TrdpTcpListener {
             _ => panic!("ipv6 not supportet")
         }
         let port : u16 = peer_address.port();
-        let app : usize = trdp_listener(own_ip,port);
+        let app : u16 = trdp_listener(own_ip,port);
 
         Self {
-          app
+          app,
+          port
         }
     }
 }
@@ -166,7 +168,7 @@ impl Listener for TrdpTcpListener {
 
     fn port(&self) -> u16
     {
-        return 0;
+        return self.port;
     }
 
     async fn accept(&mut self) -> Result<Box<dyn Connection>,Error>
@@ -208,7 +210,7 @@ impl Connector for TrdpTcpConnector {
 
         let port : u16 = self.address.port();
        
-        let app : usize = trdp_connect(0,port);
+        let app : u16 = trdp_connect(0,port);
 
         log::info!("Connect to {}:{}",self.address.ip(),port);
 
