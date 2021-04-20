@@ -15,6 +15,7 @@ default = ["monitoring"]
 monitoring = ["prometheus", "hyper"]
 
 [dependencies]
+connection = { path = "../connection" }
 balise = { path = "../balise", features = ["server", "client", "tls"] }
 err-derive = "0.2.3"
 futures = "0.3.4"

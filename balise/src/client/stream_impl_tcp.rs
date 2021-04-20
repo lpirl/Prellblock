@@ -1,4 +1,4 @@
-use crate::Error;
+use crate::{Error, Address};
 use std::net::SocketAddr;
 use tokio::net::TcpStream;
 
@@ -11,6 +11,6 @@ impl<'a> super::StreamGuard<'a> {
 }
 
 pub async fn connect(addr: &Address) -> Result<StreamImpl, Error> {
-    let stream = TcpStream::connect(addr).await?;
+    let stream = TcpStream::connect((addr.host.to_string(), addr.port)).await?;
     Ok(stream)
 }

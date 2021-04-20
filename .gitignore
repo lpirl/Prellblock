@@ -1,4 +1,4 @@
-/target
+target
 *.local.*
 
 # macOS :(
@@ -13,6 +13,7 @@
 /config/*/*.pub
 /config/*/*.pem
 /config/*/*.pfx
+/config/genesis/genesis.yaml
 
 # Data storage
 /data/
@@ -28,3 +29,5 @@
 # Benchmark data and plots
 benchmarking/*.dat
 benchmarking/*.png
+=======
+Cargo.lock

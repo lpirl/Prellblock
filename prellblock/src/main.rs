@@ -33,7 +33,8 @@ use prellblock::{
 use prellblock_client_api::{account::AccountType, consensus::GenesisTransactions};
 use std::{env, fs, io, net::ToSocketAddrs, sync::Arc};
 use structopt::StructOpt;
-use tokio::net::TcpListener;
+use connection::listener::RawTcpListener;
+use connection::trdp_tcp::TrdpTcpListener;
 
 // https://crates.io/crates/structopt
 
@@ -146,7 +147,7 @@ async fn main() {
 
         tokio::spawn(async move {
             let tls_identity = load_identity_from_env(private_config.tls_id).await?;
-            let mut listener = TcpListener::bind(turi_address).await?;
+            let mut listener = TrdpTcpListener::new(turi_address);
             let turi = Turi::new(tls_identity, batcher, reader, transaction_checker);
             turi.serve(&mut listener).await
         })
@@ -164,7 +165,7 @@ async fn main() {
     // execute the receiver in a new thread
     let peer_receiver_task = tokio::spawn(async move {
         let tls_identity = load_identity_from_env(private_config.tls_id).await?;
-        let mut listener = TcpListener::bind(peer_address).await?;
+        let mut listener = TrdpTcpListener::new(peer_address);
         let receiver = Receiver::new(tls_identity, peer_inbox);
         receiver.serve(&mut listener).await
     });
