@@ -36,4 +36,6 @@ FROM alpine:3.12
 ARG TARGET_DEFAULT
 WORKDIR /prellblock
 COPY --from=builder /src/target/$TARGET_DEFAULT/release/prellblock .
+COPY --from=builder /src/target/$TARGET_DEFAULT/release/prellblock-client .
+
 ENTRYPOINT ["/prellblock/prellblock"]

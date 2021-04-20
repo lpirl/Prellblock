@@ -20,11 +20,13 @@ use prellblock_client_api::{
     consensus::GenesisTransactions,
     transaction, Transaction,
 };
-use std::{fs, path::Path, time::SystemTime};
+use std::{fs, path::{Path, PathBuf}, time::SystemTime};
+use structopt::StructOpt;
 
 mod accounts;
 mod certificates;
 mod util;
+mod templates;
 
 #[derive(Clone)]
 enum Identifier {
@@ -53,10 +55,40 @@ impl AccountMeta {
     }
 }
 
+// https://crates.io/crates/structopt
+
+#[derive(StructOpt, Debug)]
+struct Opt {
+    /// The path to a configuration template file.
+    #[structopt(short, long, parse(from_os_str))]
+    template: Option<PathBuf>,
+}
+
 fn main() {
+    let opt = Opt::from_args();
+
     // All the variables that are used for writing later.
     let mut accounts: Vec<AccountMeta> = Vec::new();
     let mut ca = None;
+
+    if let Some(template) = opt.template {
+        let yaml = fs::read_to_string(template).unwrap();
+        let template: Vec<templates::AccountTemplate> = serde_yaml::from_str(&yaml).unwrap();
+
+        for a in template {
+            accounts.push(AccountMeta{
+                account: Account {
+                    name: a.name,
+                    account_type: a.permissions.account_type.unwrap(),
+                    expire_at: a.permissions.expire_at.unwrap(),
+                    writing_rights: a.permissions.has_writing_rights.unwrap(),
+                    reading_rights: a.permissions.reading_rights.unwrap()
+                },
+                identifier: Identifier::WithIdentity(Identity::generate()),
+                rpu_cert: None
+            })
+        }
+    }
 
     let menu_theme = ColorfulTheme::default();
     let main_menu_items = [
@@ -80,6 +112,9 @@ fn main() {
             1 => accounts::handle_create_accounts(&menu_theme, &mut accounts),
             2 => certificates::handle_create_certificates(&menu_theme, &mut accounts, &mut ca),
             3 => {
+                if validate(&accounts) == false {
+                    continue
+                }
                 handle_finish(&menu_theme, accounts, ca);
                 break;
             }
@@ -109,6 +144,35 @@ fn handle_generate_private_key(theme: &'_ dyn Theme) {
         "Saved private key to {}.",
         path.canonicalize().unwrap().display()
     );
+}
+
+fn validate(accounts: &Vec<AccountMeta>) -> bool {
+    let mut valid = true;
+    for AccountMeta {
+        account,
+        identifier: _,
+        rpu_cert,
+    } in accounts
+    {
+        if let AccountType::RPU { .. } = account.account_type {
+            if rpu_cert.is_none() {
+                println!("Validation error: No certificate for {}.", account.name);
+                valid = false;
+            }
+        }
+    }
+
+    let num_rpus = accounts.iter().filter(|&a| a.account.account_type.is_rpu()).count();
+    if num_rpus < 4 {
+        println!("Validation error: Your configuration must include at least four accounts of type RPU.");
+        valid = false;
+    }
+
+    if !valid {
+        println!("Please fix your configuration.");
+    }
+
+    return valid;
 }
 
 fn handle_finish(theme: &'_ dyn Theme, accounts: Vec<AccountMeta>, ca: Option<CA>) {

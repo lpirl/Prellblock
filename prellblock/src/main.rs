@@ -31,7 +31,7 @@ use prellblock::{
     RpuPrivateConfig,
 };
 use prellblock_client_api::{account::AccountType, consensus::GenesisTransactions};
-use std::{env, fs, io, sync::Arc};
+use std::{env, fs, io, net::ToSocketAddrs, sync::Arc};
 use structopt::StructOpt;
 use tokio::net::TcpListener;
 
@@ -95,7 +95,7 @@ async fn main() {
 
     let transaction_checker = TransactionChecker::new(world_state);
 
-    let (turi_address, peer_address, monitoring_address) = match rpu_account.account_type {
+    let (turi_address, peer_address, monitoring_address) = match &rpu_account.account_type {
         AccountType::RPU {
             turi_address,
             peer_address,
@@ -104,16 +104,40 @@ async fn main() {
         _ => panic!("Given account {} is no RPU.", peer_id),
     };
 
-    if_monitoring!({
+    //if_monitoring!({
+
         use prellblock::prometheus;
 
+        let resolved_addresses: Vec<_> = monitoring_address
+        .to_socket_addrs()
+        .expect("Unable to resolve turi address")
+        .collect();
+        let resolved_address = resolved_addresses.first().unwrap();
+        let monitoring_address = *resolved_address;
+        
+       
         // start monitoring exporter server in a new thread.
-        tokio::spawn(async move {
+        let monitoring_task = tokio::spawn(async move {
             // FIXME: use TLS for prometheus
             // let tls_identity = load_identity_from_env(private_config.tls_id).await.unwrap();
             prometheus::run_server(monitoring_address).await
         });
-    });
+        
+        
+    //});
+    let resolved_addresses: Vec<_> = turi_address
+        .to_socket_addrs()
+        .expect("Unable to resolve turi address")
+        .collect();
+    let resolved_address = resolved_addresses.first().unwrap();
+    let turi_address = *resolved_address;
+
+    let resolved_addresses: Vec<_> = peer_address
+        .to_socket_addrs()
+        .expect("Unable to resolve peer address")
+        .collect();
+    let resolved_address = resolved_addresses.first().unwrap();
+    let peer_address = *resolved_address;
 
     // execute the turi in a new thread
     let turi_task = {
@@ -146,13 +170,16 @@ async fn main() {
     });
 
     // wait for all tasks
-    future::join(
+    future::join3(
         async move {
             log::error!("Turi ended: {:?}", turi_task.await);
         },
         async move {
             log::error!("Peer recceiver ended: {:?}", peer_receiver_task.await);
         },
+        async move {
+            log::error!("Monitoring ended: {:?}", monitoring_task.await);
+        }
     )
     .await;
     log::info!("Going to hunt some mice. I meant *NICE*. Bye.");

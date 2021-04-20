@@ -35,15 +35,12 @@ impl Broadcaster {
                 .iter()
                 .map(|(_, peer_address)| {
                     let message = message.clone();
-                    let peer_address = *peer_address;
+                    let peer_address = peer_address.clone();
                     tokio::spawn(async move {
-                        log::trace!("Sending to {}.", peer_address);
-                        let mut sender = Sender::new(peer_address);
+                        log::trace!("Sending batch to {}.", &peer_address);
+                        let mut sender = Sender::new(peer_address.clone());
                         let result = sender.send_request(message).await;
-                        match result {
-                            Ok(_) => log::trace!("Sent to {}.", peer_address),
-                            Err(_) => log::warn!("Failed to send to {}.", peer_address),
-                        }
+                        log::trace!("Sent batch to {}.", &peer_address);
                         result
                     })
                 }),
