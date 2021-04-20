@@ -1,19 +1,6 @@
-ARG TARGET_DEFAULT=x86_64-unknown-linux-musl
+FROM rust:latest 
 
-#################################
-# Build prellblock
-#################################
-#FROM rustlang/rust:nightly-alpine3.12 as builder
-FROM rustlang/rust:nightly-buster-slim as builder
 
-ARG TARGET_DEFAULT
-ENV TARGET=$TARGET_DEFAULT
-
-# RUN apk update && \
-#     apk add --no-cache \
-#     build-base \
-#     openssl-dev \
-#     && true
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     build-essential \
@@ -21,21 +8,24 @@ RUN apt-get update && \
     musl-tools \ 
     && true
 
-COPY . /src
-WORKDIR /src
 
-RUN rustup target add ${TARGET}
+RUN apt-get -y install \
+             libclang-dev \
+             llvm-dev clang uuid-dev \
+             telnet \
+             tcpdump
 
-RUN RUST_BACKTRACE=full cargo build --release --target=${TARGET}
+COPY trdp/lib/libtrdpap.a /usr/local/lib/
+COPY trdp/include/trdp /usr/local/include/trdp
 
-#################################
-# Copy compiled version
-#################################
-FROM alpine:3.12
-
-ARG TARGET_DEFAULT
+COPY . /prellblock
 WORKDIR /prellblock
-COPY --from=builder /src/target/$TARGET_DEFAULT/release/prellblock .
-COPY --from=builder /src/target/$TARGET_DEFAULT/release/prellblock-client .
 
-ENTRYPOINT ["/prellblock/prellblock"]
+#RUN rustup target add ${TARGET}
+
+RUN RUST_BACKTRACE=full 
+
+RUN cargo build --release
+
+
+ENTRYPOINT ["/prellblock/target/release/prellblock"]
