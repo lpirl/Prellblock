@@ -61,7 +61,7 @@ cargo run --bin md_sender -- 8080
 cd genesis-wizard
 cargo run --bin genesis-wizard
 ```
-follow the steps and create 4 RPU, 1 adim and 1 sensor Account
+follow the steps and create 4 RPU, 1 admim and 1 sensor Account
 
 
 
