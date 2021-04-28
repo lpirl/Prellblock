@@ -228,6 +228,7 @@ unsafe extern "C" fn md_callback (_a: *mut libc::c_void, app_handle : TRDP_APP_S
             match (*p_msg).msgType as u32 {
                 TRDP_MSG_MR => log::info!("MR Request with reply {}",message_to_string(p_data,data_size)),
                 TRDP_MSG_MP => log::info!("MD Reply without confirmation {}",message_to_string(p_data,data_size)),
+                TRDP_MSG_ME => log::info!("Error"),
                 _ => panic!("message error {}",(*p_msg).msgType)
             }
 
@@ -370,12 +371,13 @@ fn trdp_handle(app_handle: TRDP_APP_SESSION_T)
             tv_usec: 0,
         };
         let max_tv = TRDP_TIME_T {
-            tv_sec: 1,
-            tv_usec: 0,
+            tv_sec: 0,
+            tv_usec: 5000, //5 ms
         };
         let min_tv = TRDP_TIME_T {
             tv_sec: 0,
-            tv_usec: TRDP_PROCESS_DEFAULT_CYCLE_TIME as i64,
+            //tv_usec: TRDP_PROCESS_DEFAULT_CYCLE_TIME as i64,
+            tv_usec: 5000, //5 ms
         };
 
         libc::FD_ZERO(rfds.as_mut_ptr());
