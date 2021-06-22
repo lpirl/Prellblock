@@ -238,7 +238,7 @@ pub enum Query {
 }
 
 /// The `Transaction`s in response to a `GetValue` request of a single data series of a peer.
-pub type ReadValuesOfSeries = HashMap<SystemTime, (Vec<u8>, Signature)>;
+pub type ReadValuesOfSeries = HashMap<SystemTime, (Vec<u8>, SystemTime, Signature)>;
 
 /// The `Transaction`s in response to a `GetValue` request of a single peer.
 pub type ReadValuesOfPeer = HashMap<String, ReadValuesOfSeries>;
@@ -334,6 +334,7 @@ impl_signable!(
 );
 
 /// A blockchain transaction for prellblock.
+#[allow(clippy::large_enum_variant)]
 #[newtype_enum(variants = "transaction")]
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub enum Transaction {
@@ -341,16 +342,58 @@ pub enum Transaction {
     KeyValue {
         /// The key.
         key: String,
-
         /// The value.
         value: Vec<u8>,
+        /// The Timestamp.
+        timestamp: SystemTime,
     },
-
     /// Update an account.
     UpdateAccount {
         /// The account to set the permissions for.
         id: PeerId,
         /// The permission fields to update.
         permissions: Permissions,
+        /// The Timestamp.
+        timestamp: SystemTime,
     },
+    /// Create an account.
+    CreateAccount {
+        /// An ID for the new account.
+        id: PeerId,
+        /// The name for the new account.
+        name: String,
+        /// The permission fields to set.
+        permissions: Permissions,
+        /// The timestamp of transaction creation.
+        timestamp: SystemTime,
+    },
+    /// Delete an account.
+    DeleteAccount {
+        /// The account to delete.
+        id: PeerId,
+        /// The timestamp of transaction creation.
+        timestamp: SystemTime,
+    },
+}
+
+/// A trait signifying that a transaction can be written into the Account-tree in the `DataStorage`.
+pub trait AccountTransaction {
+    /// The timestamp of transaction creation.
+    fn timestamp(&self) -> SystemTime;
+}
+
+impl AccountTransaction for transaction::UpdateAccount {
+    fn timestamp(&self) -> SystemTime {
+        self.timestamp
+    }
+}
+impl AccountTransaction for transaction::CreateAccount {
+    fn timestamp(&self) -> SystemTime {
+        self.timestamp
+    }
+}
+impl AccountTransaction for transaction::DeleteAccount {
+    fn timestamp(&self) -> SystemTime {
+        self.timestamp
+    }
 }

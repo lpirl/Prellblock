@@ -40,6 +40,10 @@ pub enum PermissionError {
     /// The account does not have the right read blocks.
     #[error(display = "The account {} is not an allowed to read blocks.", 0)]
     CannotReadBlocks(PeerId),
+
+    /// The account to be created already exists.
+    #[error(display = "The account {} already exists.", 0)]
+    AccountAlreadyExists(PeerId),
 }
 
 /// A `TransactionChecker` is used to check whether accounts are allowed to carry out transactions.
@@ -162,19 +166,18 @@ impl AccountChecker {
         }
     }
 
-    /// Verify whether the accoount is a known RPU.
+    /// Verify whether the account is a known RPU.
     pub fn verify_is_rpu(&self) -> Result<(), PermissionError> {
-        if self.account.account_type == AccountType::RPU {
-            Ok(())
-        } else {
-            Err(PermissionError::NotAnRPU(self.peer_id.clone()))
+        match self.account.account_type {
+            AccountType::RPU { .. } => Ok(()),
+            _ => Err(PermissionError::NotAnRPU(self.peer_id.clone())),
         }
     }
 
     /// Verify whether the account is allowed to read blocks.
     pub fn verify_can_read_blocks(&self) -> Result<(), PermissionError> {
         match self.account.account_type {
-            AccountType::BlockReader | AccountType::RPU | AccountType::Admin => Ok(()),
+            AccountType::BlockReader | AccountType::RPU { .. } | AccountType::Admin => Ok(()),
             AccountType::Normal => Err(PermissionError::CannotReadBlocks(self.peer_id.clone())),
         }
     }
@@ -206,6 +209,24 @@ impl TransactionCheck {
                 }
             }
             Transaction::UpdateAccount(params) => {
+                account_checker.verify_is_admin()?;
+                if self.world_state.accounts.get(&params.id).is_none() {
+                    return Err(PermissionError::AccountNotFound(params.id.clone()));
+                }
+                self.world_state
+                    .apply_transaction(transaction.to_owned().into());
+                Ok(())
+            }
+            Transaction::CreateAccount(params) => {
+                account_checker.verify_is_admin()?;
+                if self.world_state.accounts.get(&params.id).is_some() {
+                    return Err(PermissionError::AccountAlreadyExists(params.id.clone()));
+                }
+                self.world_state
+                    .apply_transaction(transaction.to_owned().into());
+                Ok(())
+            }
+            Transaction::DeleteAccount(params) => {
                 account_checker.verify_is_admin()?;
                 if self.world_state.accounts.get(&params.id).is_none() {
                     return Err(PermissionError::AccountNotFound(params.id.clone()));

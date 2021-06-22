@@ -1,0 +1,11 @@
+[package]
+name = "trdp-rs"
+version = "0.1.0"
+authors = ["Robert Schmid"]
+edition = "2018"
+
+[dependencies]
+libc = "0.2"
+
+[build-dependencies]
+bindgen = "0.53.1"

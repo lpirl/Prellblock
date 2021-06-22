@@ -1,2 +1,4 @@
-identity = "./config/thomas/thomas.key"
-tls_id = "./certificates/thomas/thomas.pfx"
+identity = "config/thomas/thomas.key"
+tls_id = "config/thomas/thomas.pfx"
+block_path = "blocks/thomas"
+data_path = "data/thomas"

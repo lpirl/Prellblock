@@ -1,0 +1,25 @@
+[package]
+name = "genesis-wizard"
+version = "0.1.0"
+authors = [
+    "Benedikt Schenkel <benedikt.schenkel@student.hpi.de>",
+    "Felix Gohla <felix.gohla@student.hpi.de>",
+    "Malte Andersch <malte.andersch@student.hpi.de>",
+    "Martin Michaelis <code@mgjm.de>",]
+edition = "2018"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+chrono = "0.4.11"
+dialoguer = "0.6.2"
+hexutil = "0.1.0"
+humantime = "2.0.1"
+newtype-enum = "0.1.0"
+openssl = { version = "0.10.30", features = ["vendored"] }
+pinxit = { path = "../pinxit" }
+prellblock = { path = "../prellblock" }
+prellblock-client-api = { path = "../prellblock-client-api" }
+serde = { version = "1.0.114", features = ["derive"] }
+serde_yaml = "0.8.13"
+structopt = "0.3.12"
+toml = "0.5.6"

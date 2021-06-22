@@ -1,2 +1,4 @@
-identity = "./config/emily/emily.key"
-tls_id = "./certificates/emily/emily.pfx"
+identity = "config/emily/emily.key"
+tls_id = "config/emily/emily.pfx"
+block_path = "blocks/emily"
+data_path = "data/emily"

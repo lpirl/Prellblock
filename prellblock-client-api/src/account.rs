@@ -28,6 +28,36 @@ pub struct Account {
     pub reading_rights: Vec<ReadingPermission>,
 }
 
+impl Account {
+    /// Create a new `Account` with a given name and default values.
+    #[must_use]
+    pub fn new(name: String) -> Self {
+        Self {
+            name,
+            account_type: AccountType::default(),
+            expire_at: Expiry::default(),
+            writing_rights: false,
+            reading_rights: Vec::new(),
+        }
+    }
+
+    /// Apply `permissions` onto the account.
+    pub fn apply_permissions(&mut self, permissions: Permissions) {
+        if let Some(account_type) = permissions.account_type {
+            self.account_type = account_type;
+        }
+        if let Some(expire_at) = permissions.expire_at {
+            self.expire_at = expire_at;
+        }
+        if let Some(writing_rights) = permissions.has_writing_rights {
+            self.writing_rights = writing_rights;
+        }
+        if let Some(reading_rights) = permissions.reading_rights {
+            self.reading_rights = reading_rights;
+        }
+    }
+}
+
 /// Permission fields for a account.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -48,15 +78,32 @@ pub struct Permissions {
 #[allow(clippy::module_name_repetitions)]
 #[serde(rename_all = "snake_case")]
 pub enum AccountType {
-    /// A normal accoount with no special privileges.
+    /// A normal account with no special privileges.
     Normal,
     /// An acccount that can read whole blocks and therefore read all values.
     BlockReader,
-    /// A RPU that can participate in the consesus.
+    /// An RPU that can participate in the consensus.
     #[serde(rename = "rpu")]
-    RPU,
+    RPU {
+        /// The address on which the `Turi` listens for incoming client requests.
+        turi_address: String,
+        /// The address on which the `PeerInbox` listens for incoming RPU-RPU communication.
+        peer_address: String,
+        /// The address on which the Prometheus server should listen.
+        monitoring_address: String,
+    },
     /// An admin that can manage and edit all other accounts.
     Admin,
+}
+
+impl AccountType {
+    /// Whether the account type is AccountType::RPU
+    pub fn is_rpu(&self) -> bool {
+        match self {
+            Self::RPU { .. } => true,
+            _ => false,
+        }
+    }
 }
 
 impl Default for AccountType {
@@ -119,7 +166,7 @@ pub enum ReadingPermission {
 }
 
 /// The right to read from specific accounts.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReadingRight {
     /// A black- or whitelist of accounts.
     pub accounts: Vec<PeerId>,

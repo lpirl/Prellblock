@@ -8,11 +8,43 @@ use super::{
     message::{consensus_message as message, consensus_response as response},
     Core, Error, ErrorVerify, InvalidTransaction, NotifyMap, ViewChange,
 };
-use crate::consensus::{BlockNumber, LeaderTerm};
+use crate::{
+    consensus::{BlockNumber, LeaderTerm},
+    if_monitoring,
+};
+if_monitoring! {
+    use super::{QUEUE_BACKLOG,QUEUE_RESIDENCE_TIME};
+}
 use pinxit::PeerId;
 use state::State;
-use std::{cmp::Ordering, ops::Deref, sync::Arc};
+use std::{cmp::Ordering, ops::Deref, sync::Arc, time::SystemTime};
 use tokio::sync::{Mutex, MutexGuard, Semaphore};
+
+if_monitoring! {
+    use lazy_static::lazy_static;
+    use prometheus::{register_gauge, Gauge};
+    lazy_static! {
+        /// Measure the time of the last received PREPARE message.
+        static ref LAST_PREPARE_MESSAGE: Gauge = register_gauge!(
+            "praftbft_last_prepare_message",
+            "The time of the last received PREPARE message."
+        )
+        .unwrap();
+        /// Measure the time of the last received APPEND message.
+        static ref LAST_APPEND_MESSAGE: Gauge = register_gauge!(
+            "praftbft_last_append_message",
+            "The time of the last received APPEND message."
+        )
+        .unwrap();
+        /// Measure the time of the last received COMMIT message.
+        static ref LAST_COMMIT_MESSAGE: Gauge = register_gauge!(
+            "praftbft_last_commit_message",
+            "The time of the last received COMMIT message."
+        )
+        .unwrap();
+
+    }
+}
 
 #[derive(Debug)]
 pub struct Follower {
@@ -74,6 +106,13 @@ impl Follower {
 
         log::trace!("Handle Prepare message #{}.", message.block_number);
 
+        if_monitoring! {{
+            match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+                Ok(duration) => LAST_PREPARE_MESSAGE.set(duration.as_secs_f64()),
+                Err(err) => log::warn!("Error getting time of last PREPARE message: {}", err),
+            }
+        }}
+
         // Check whether the state for the block is Waiting.
         // We only allow to receive messages once.
         state.phase().verify(Phase::Waiting)?;
@@ -102,6 +141,12 @@ impl Follower {
             .await?;
 
         log::trace!("Handle Append message #{}.", message.block_number);
+        if_monitoring! {{
+            match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+                Ok(duration) => LAST_APPEND_MESSAGE.set(duration.as_secs_f64()),
+                Err(err) => log::warn!("Error getting time of last APPEND message: {}", err),
+            }
+        }}
 
         // Check whether the state for the block is Prepare.
         // We only allow to receive messages once.
@@ -120,7 +165,7 @@ impl Follower {
             .request_view_change_on_error(async {
                 // Validate the Block Hash.
                 let block_hash = message.block_hash;
-                let body = state.body_with(message.valid_transactions);
+                let body = state.body_with(message.valid_transactions, message.timestamp);
                 if body.hash() != block_hash {
                     return Err(Error::BlockNotMatchingHash);
                 }
@@ -179,6 +224,13 @@ impl Follower {
             .await?;
 
         log::trace!("Handle Commit message #{}.", message.block_number);
+
+        if_monitoring! {{
+            match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+                Ok(duration) => LAST_COMMIT_MESSAGE.set(duration.as_secs_f64()),
+                Err(err) => log::warn!("Error getting time of last COMMIT message: {}", err),
+            }
+        }}
 
         message.leader_term.verify(state.leader_term)?;
         state.verify_leader(&peer_id)?;
@@ -304,7 +356,7 @@ impl Follower {
             state.new_leader_term(message.leader_term, message.view_change_signatures);
 
             // The leader can start it's work.
-            self.notify_leader.notify();
+            self.notify_leader.notify_one();
         }
     }
 }

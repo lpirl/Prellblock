@@ -1,6 +1,10 @@
 use structopt::StructOpt;
 #[derive(StructOpt, Debug)]
 pub struct Opt {
+    /// Private key file path.
+    pub private_key_file: String,
+    /// The address of the receiving RPU's address.
+    pub turi_address: String,
     #[structopt(subcommand)]
     pub cmd: Cmd,
 }
@@ -14,8 +18,14 @@ pub enum Cmd {
     #[structopt(name = "bench")]
     Benchmark(cmd::Benchmark),
     /// Update an account.
-    #[structopt(name = "update")]
+    #[structopt(name = "update_account")]
     UpdateAccount(cmd::UpdateAccount),
+    /// Create an account.
+    #[structopt(name = "create_account")]
+    CreateAccount(cmd::CreateAccount),
+    /// Delete an account.
+    #[structopt(name = "delete_account")]
+    DeleteAccount(cmd::DeleteAccount),
     /// Get values from the blockchain.
     ///
     /// Specifying only a filter returns the last recorded value.
@@ -49,8 +59,6 @@ pub mod cmd {
     /// Benchmark the blockchain.
     #[derive(StructOpt, Debug)]
     pub struct Benchmark {
-        /// The name of the RPU to benchmark.
-        pub rpu_name: String,
         /// The key to use for saving benchmark generated data.
         pub key: String,
         /// The number of transactions to send
@@ -61,15 +69,36 @@ pub mod cmd {
         /// The number of workers (clients) to use simultaneously.
         #[structopt(short, long, default_value = "1")]
         pub workers: usize,
+        /// Print the TPS number to stdout.
+        #[structopt(short, long)]
+        pub print_tps: bool,
     }
 
     /// Update the permissions for a given account.
     #[derive(StructOpt, Debug)]
     pub struct UpdateAccount {
-        /// The id of the account to update.
-        pub id: String,
+        /// The public key of the account to update.
+        pub peer_id: String,
         /// The filepath to a yaml-file cotaining the accounts permissions.
         pub permission_file: String,
+    }
+
+    /// Create a new account.
+    #[derive(StructOpt, Debug)]
+    pub struct CreateAccount {
+        /// The public key of the account to create.
+        pub peer_id: String,
+        /// The name of the account to create.
+        pub name: String,
+        /// The filepath to a yaml-file cotaining the accounts permissions.
+        pub permission_file: String,
+    }
+
+    /// Delete an account.
+    #[derive(StructOpt, Debug)]
+    pub struct DeleteAccount {
+        /// The public key of the account to delete.
+        pub peer_id: String,
     }
 
     /// Update the permissions for a given account.

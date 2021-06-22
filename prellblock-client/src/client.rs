@@ -2,7 +2,7 @@
 
 #![allow(clippy::future_not_send)]
 
-use balise::{client, Error};
+use balise::{client, Address, Error};
 use newtype_enum::{Enum, Variant};
 use pinxit::{Identity, PeerId, Signable, Signed};
 use prellblock_client_api::{
@@ -12,7 +12,7 @@ use prellblock_client_api::{
     GetValue, Query, ReadValues, Transaction,
 };
 use serde::Serialize;
-use std::net::SocketAddr;
+use std::time::SystemTime;
 
 /// A Client Instance.
 ///
@@ -36,12 +36,12 @@ pub struct Client {
 }
 
 impl Client {
-    /// Create a new client for sending transactions to a RPU.
+    /// Create a new client for sending transactions to an RPU.
     ///
     /// The `turi_address` is the Turi's port to connect to.
     #[must_use]
     #[allow(clippy::missing_const_for_fn)]
-    pub fn new(turi_address: SocketAddr, identity: Identity) -> Self {
+    pub fn new(turi_address: Address, identity: Identity) -> Self {
         Self {
             rpu_client: client::Client::new(turi_address),
             identity,
@@ -74,7 +74,12 @@ impl Client {
         V: Serialize + Send,
     {
         let value = postcard::to_stdvec(&value)?;
-        self.execute(transaction::KeyValue { key, value }).await
+        self.execute(transaction::KeyValue {
+            key,
+            value,
+            timestamp: SystemTime::now(),
+        })
+        .await
     }
 
     /// Update a `target` account's `permissions`.
@@ -86,6 +91,32 @@ impl Client {
         self.execute(transaction::UpdateAccount {
             id: target,
             permissions,
+            timestamp: SystemTime::now(),
+        })
+        .await
+    }
+
+    /// Create a new account with `permissions`.
+    pub async fn create_account(
+        &mut self,
+        account: PeerId,
+        name: String,
+        permissions: Permissions,
+    ) -> Result<(), Error> {
+        self.execute(transaction::CreateAccount {
+            id: account,
+            name,
+            permissions,
+            timestamp: SystemTime::now(),
+        })
+        .await
+    }
+
+    /// Delete an account.
+    pub async fn delete_account(&mut self, account: PeerId) -> Result<(), Error> {
+        self.execute(transaction::DeleteAccount {
+            id: account,
+            timestamp: SystemTime::now(),
         })
         .await
     }

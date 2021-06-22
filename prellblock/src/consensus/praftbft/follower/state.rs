@@ -1,8 +1,16 @@
 use super::{message, Core, Error, InvalidTransaction, NotifyMap};
-use crate::consensus::{Block, BlockHash, BlockNumber, Body, LeaderTerm, SignatureList};
+use crate::{
+    consensus::{Block, BlockHash, BlockNumber, Body, LeaderTerm, SignatureList},
+    if_monitoring,
+};
 use pinxit::{PeerId, Signed};
 use prellblock_client_api::Transaction;
-use std::{ops::Deref, sync::Arc};
+use std::{ops::Deref, sync::Arc, time::SystemTime};
+if_monitoring! {
+    use super::{
+        QUEUE_BACKLOG, QUEUE_RESIDENCE_TIME,
+    };
+}
 
 #[derive(Debug)]
 pub struct State {
@@ -81,11 +89,12 @@ impl State {
     }
 
     /// Create a body with the given `transactions`.
-    pub fn body_with(&self, transactions: Vec<Signed<Transaction>>) -> Body {
+    pub fn body_with(&self, transactions: Vec<Signed<Transaction>>, timestamp: SystemTime) -> Body {
         Body {
             leader_term: self.leader_term,
             height: self.block_number,
             prev_block_hash: self.last_block_hash,
+            timestamp,
             transactions,
         }
     }
@@ -124,6 +133,11 @@ impl State {
         assert!(self.buffered_commit_message.is_none());
 
         let block = self.block_with(ackappend_signatures);
+        log::trace!(
+            "Committing block #{} with {} transactions.",
+            block.body.height,
+            block.body.transactions.len()
+        );
         let block_hash = self.block_hash.take().unwrap();
 
         // We are sure that these transactions are really invalid and therefore
@@ -151,10 +165,19 @@ impl State {
         assert_eq!(block.block_number(), self.block_number);
 
         // Remove committed transactions from our queue.
-        self.queue
+        let removed_txs = self
+            .queue
             .lock()
             .await
             .remove_all(block.body.transactions.iter());
+
+        if_monitoring!({
+            QUEUE_BACKLOG.set(self.queue.lock().await.len() as i64);
+            for removed_tx in removed_txs {
+                let residence_time = removed_tx.inserted().elapsed().as_secs_f64();
+                QUEUE_RESIDENCE_TIME.observe(residence_time);
+            }
+        });
 
         // Applies block.
         self.transaction_applier.apply_block(block).await;

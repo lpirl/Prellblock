@@ -2,24 +2,41 @@
 
 #![allow(clippy::module_name_repetitions)]
 
-pub use prellblock_client_api::account::Account;
+use balise::Address;
+pub use prellblock_client_api::account::{Account, Permissions};
 
 use crate::{
     block_storage::BlockStorage,
     consensus::{Block, BlockHash, BlockNumber},
-    BoxError,
+    if_monitoring, BoxError,
 };
 use im::{HashMap, Vector};
 use pinxit::{PeerId, Signed};
-use prellblock_client_api::Transaction;
+use prellblock_client_api::{account::AccountType, Transaction};
 use serde::{Deserialize, Serialize};
 use std::{
-    fmt, fs,
-    net::SocketAddr,
+    fmt,
     ops::{Deref, DerefMut},
     sync::{Arc, Mutex},
 };
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+
+if_monitoring! {
+    use lazy_static::lazy_static;
+use prometheus::{register_int_gauge, IntGauge};
+lazy_static! {
+    static ref BLOCK_NUMBER: IntGauge = register_int_gauge!(
+        "world_state_block_number",
+        "The number of blocks (=height) of the blockchain."
+    )
+    .unwrap();
+    static ref NUM_TRANSACTIONS: IntGauge = register_int_gauge!(
+        "world_state_num_txs",
+        "The aggregated number of transactions in the WorldState."
+    )
+    .unwrap();
+}
+}
 
 /// Struct holding a `Worldstate` and it's previous `Worldstate`, if any.
 #[derive(Debug, Default)]
@@ -58,20 +75,8 @@ impl WorldStateService {
     }
 
     /// Create a new `WorldStateService` initalized with the blocks from a `block_storage`.
-    pub fn from_block_storage(
-        block_storage: &BlockStorage,
-        peer_accounts: impl Iterator<Item = (PeerId, Account)>,
-        peers: Vector<(PeerId, SocketAddr)>,
-    ) -> Result<Self, BoxError> {
+    pub fn from_block_storage(block_storage: &BlockStorage) -> Result<Self, BoxError> {
         let mut world_state_references = WorldStateReferences::default();
-
-        // TODO: Remove this. Currently for development purposes.
-        {
-            let world_state = &mut world_state_references.current;
-            world_state.load_fake_accounts();
-            world_state.accounts.extend(peer_accounts);
-            world_state.peers = peers;
-        }
 
         let mut blocks = block_storage.read(..);
         let last_block = blocks.next_back();
@@ -100,6 +105,7 @@ impl WorldStateService {
     pub fn get(&self) -> WorldState {
         self.world_state_references.lock().unwrap().current.clone()
     }
+
     /// Rollback the `WorldState` to the previous state.
     #[allow(clippy::must_use_candidate)]
     pub fn rollback(&self) -> Option<WorldState> {
@@ -112,6 +118,7 @@ impl WorldStateService {
     /// Return a copy of the entire `WorldState`.
     pub async fn get_writable(&self) -> WritableWorldState {
         let permit = self.writer.clone().acquire_owned().await;
+        let permit = permit.expect("unable to acquire");
         WritableWorldState {
             shared_world_state: self.world_state_references.clone(),
             world_state: self.get(),
@@ -165,7 +172,7 @@ pub struct WorldState {
     /// Field storing the `Account` `Permissions`.
     pub accounts: HashMap<PeerId, Arc<Account>>,
     /// Field storing the `Peer`s.
-    pub peers: Vector<(PeerId, SocketAddr)>,
+    pub peers: Vector<(PeerId, Address)>,
     /// The number of `Block`s applied to the `WorldState`.
     pub block_number: BlockNumber,
     /// Hash of the last `Block` in the `BlockStorage`.
@@ -173,22 +180,6 @@ pub struct WorldState {
 }
 
 impl WorldState {
-    /// Function used for developement purposes, loads static accounts from a config file.
-    fn load_fake_accounts(&mut self) {
-        let yaml_file = fs::read_to_string("./config/accounts.yaml").unwrap();
-        let accounts_strings: HashMap<String, Account> = serde_yaml::from_str(&yaml_file).unwrap();
-
-        self.accounts = accounts_strings
-            .into_iter()
-            .map(|(key, account)| {
-                (
-                    key.parse().expect("peer_id in accounts.yaml"),
-                    account.into(),
-                )
-            })
-            .collect();
-    }
-
     /// Apply a block to the current world state.
     pub fn apply_block(&mut self, block: Block) -> Result<(), BoxError> {
         if block.body.prev_block_hash != self.last_block_hash {
@@ -197,9 +188,18 @@ impl WorldState {
         // TODO: validate block (peers, signatures, etc)
         self.last_block_hash = block.body.hash();
         self.block_number = block.body.height + 1;
+
+        if_monitoring!({
+            let new_block_number: u64 = self.block_number.into();
+            #[allow(clippy::cast_possible_wrap)]
+            BLOCK_NUMBER.set(new_block_number as i64);
+            NUM_TRANSACTIONS.add(block.body.transactions.len() as i64);
+        });
+
         for transaction in block.body.transactions {
             self.apply_transaction(transaction);
         }
+
         Ok(())
     }
 
@@ -209,20 +209,83 @@ impl WorldState {
             Transaction::KeyValue(_) => {}
             Transaction::UpdateAccount(params) => {
                 if let Some(account) = self.accounts.get_mut(&params.id).map(Arc::make_mut) {
-                    let permissions = params.permissions;
-                    if let Some(account_type) = permissions.account_type {
-                        account.account_type = account_type;
+                    // If was RPU and now it isn't, remove from peers list.
+                    // If it was, then add it to the peers list.
+                    match account.account_type {
+                        AccountType::RPU { .. } => {
+                            match params.permissions.account_type {
+                                None | Some(AccountType::RPU { .. }) => {}
+                                Some(_) => {
+                                    // Remove the account from peers.
+                                    if let Some(index) =
+                                        self.peers.iter().position(|(id, _)| *id == params.id)
+                                    {
+                                        self.peers.remove(index);
+                                    } else {
+                                        unreachable!(
+                                            "RPU to delete {} ({}) does not exist.",
+                                            params.id, account.name
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        _ => {
+                            if let Some(AccountType::RPU { peer_address, .. }) =
+                                &params.permissions.account_type
+                            {
+                                // Add account because now it's an RPU.
+                                if self.peers.iter().any(|(id, _)| *id == params.id) {
+                                    unreachable!(
+                                        "RPU {} ({}) already exists.",
+                                        params.id, account.name
+                                    )
+                                }
+                                self.peers.push_back((params.id, peer_address.parse().unwrap()));
+                            }
+                        }
                     }
-                    if let Some(expire_at) = permissions.expire_at {
-                        account.expire_at = expire_at;
+                    account.apply_permissions(params.permissions);
+                } else {
+                    // Should be checked in `TransactionChecker`.
+                    unreachable!("Account {} does not exist.", params.id);
+                }
+            }
+            Transaction::CreateAccount(params) => {
+                let mut account = Account::new(params.name);
+                let account_id = params.id;
+                account.apply_permissions(params.permissions);
+                let account = Arc::new(account);
+                if self
+                    .accounts
+                    .insert(account_id.clone(), account.clone())
+                    .is_some()
+                {
+                    // Should be checked in `TransactionChecker`.
+                    unreachable!("Account {} ({}) already exist.", account_id, account.name);
+                }
+
+                // Add the account as peer, if not exists.
+                if let AccountType::RPU { peer_address, .. } = &account.account_type {
+                    if self.peers.iter().any(|(id, _)| *id == account_id) {
+                        unreachable!("RPU {} ({}) already exists.", account_id, account.name)
                     }
-                    if let Some(writing_rights) = permissions.has_writing_rights {
-                        account.writing_rights = writing_rights;
-                    }
-                    if let Some(reading_rights) = permissions.reading_rights {
-                        account.reading_rights = reading_rights;
+                    self.peers.push_back((account_id, peer_address.parse().unwrap()));
+                }
+            }
+            Transaction::DeleteAccount(params) => {
+                if let Some(account) = self.accounts.remove(&params.id) {
+                    // Remove the account from peers.
+                    if let Some(index) = self.peers.iter().position(|(id, _)| *id == params.id) {
+                        self.peers.remove(index);
+                    } else {
+                        unreachable!(
+                            "RPU to delete {} ({}) does not exist.",
+                            params.id, account.name
+                        )
                     }
                 } else {
+                    // Should be checked in `TransactionChecker`.
                     unreachable!("Account {} does not exist.", params.id);
                 }
             }

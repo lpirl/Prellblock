@@ -1,0 +1,29 @@
+[package]
+name = "hello_world"
+version = "0.1.0"
+authors = ["Your Name <you@example.com>"]
+edition = "2018"
+
+[[bin]]
+name = "tcp_listener"
+path = "src/tcp_listener.rs"
+
+[[bin]]
+name = "tcp_sender"
+path = "src/tcp_sender.rs"
+
+
+[[bin]]
+name = "md_listener"
+path = "src/md_listener.rs"
+
+[[bin]]
+name = "md_sender"
+path = "src/md_sender.rs"
+
+[dependencies]
+connection = { path = "../connection" }
+futures = "0.3.12"
+tokio = { version = "1.2.0", features = ["rt-multi-thread", "macros", "rt", "io-util", "net", "sync", "fs", "time"] }
+pretty_env_logger = "0.4.0"
+log = "0.4.8"

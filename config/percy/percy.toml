@@ -1,2 +1,4 @@
-identity = "./config/percy/percy.key"
-tls_id = "./certificates/percy/percy.pfx"
+identity = "config/percy/percy.key"
+tls_id = "config/percy/percy.pfx"
+block_path = "blocks/percy"
+data_path = "data/percy"

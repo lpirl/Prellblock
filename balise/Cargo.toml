@@ -8,6 +8,7 @@ authors = [
     "Martin Michaelis <code@mgjm.de>",
 ]
 edition = "2018"
+license = "MIT OR Apache-2.0"
 
 [features]
 client = []
@@ -15,14 +16,16 @@ server = []
 tls = ["native-tls"]
 
 [dependencies]
+connection = { path = "../connection" }
 err-derive = "0.2.4"
 lazy_static = "1.4.0"
 log = "0.4.8"
 native-tls = { version = "0.2", optional = true, features = ["vendored"] }
-postcard = { version = "0.5.0", git = "https://github.com/felix-gohla/postcard.git", features = ["use-std"] }
+postcard = { version = "0.5.0", git = "https://github.com/felix-gohla/postcard.git", rev = "d9bdfe2b", features = ["use-std"] }
 serde = { version = "1.0.105", features = ["derive"] }
-tokio = { version = "0.2.19", features = ["rt-core", "io-util", "tcp", "sync", "fs"] }
-tokio-tls = "0.3.0"
+tokio = { version = "1.2.0", features = ["rt", "io-util", "net", "sync", "fs"] }
+tokio-native-tls = "0.3.0"
+url = { version = "2.2.1", features = ["serde"] }
 
 [dev-dependencies]
-tokio = { version = "0.2.19", features = ["macros"] }
+tokio = { version = "1.2.0", features = ["macros"] }

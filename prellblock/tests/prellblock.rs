@@ -1,4 +1,4 @@
-use balise::server::TlsIdentity;
+use balise::{server::TlsIdentity, Address};
 use futures::{select, FutureExt};
 use im::Vector;
 use pinxit::Identity;
@@ -16,7 +16,12 @@ use prellblock::{
     turi::Turi,
     world_state::WorldStateService,
 };
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use prellblock_client_api::consensus::GenesisTransactions;
+use std::{
+    net::SocketAddr,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 use tokio::net::TcpListener;
 
 #[tokio::test]
@@ -25,15 +30,20 @@ async fn test_prellblock() {
     log::info!("Kitty =^.^=");
 
     //// TEST-CONFIG
-    let turi_address: SocketAddr = "127.0.0.1:2480".parse().unwrap();
-    let peer_address: SocketAddr = "127.0.0.1:3131".parse().unwrap();
+    let turi_address: Address = "127.0.0.1:2480".parse().unwrap();
+    let peer_address: Address = "127.0.0.1:3131".parse().unwrap();
 
     let mut peers = Vector::new();
 
     let identity = Identity::generate();
-    peers.push_back((identity.id().clone(), peer_address));
+    peers.push_back((identity.id().clone(), peer_address.clone()));
 
-    let block_storage = BlockStorage::new("../blocks/test-prellblock").unwrap();
+    let fake_genesis = GenesisTransactions {
+        transactions: vec![],
+        timestamp: SystemTime::now(),
+    };
+
+    let block_storage = BlockStorage::new("../blocks/test-prellblock", Some(fake_genesis)).unwrap();
     let world_state = WorldStateService::default();
     {
         let mut world_state = world_state.get_writable().await;
@@ -67,10 +77,11 @@ async fn test_prellblock() {
 
     // execute the turi in a new thread
     let turi_task = {
+        let address = turi_address.clone();
         let transaction_checker = transaction_checker.clone();
         let test_identity = test_identity.clone();
         tokio::spawn(async move {
-            let mut listener = TcpListener::bind(turi_address).await?;
+            let mut listener = TcpListener::bind(address.to_string().parse::<SocketAddr>().unwrap()).await?;
             let turi = Turi::new(test_identity, batcher, reader, transaction_checker);
             turi.serve(&mut listener).await
         })
@@ -86,8 +97,9 @@ async fn test_prellblock() {
     let peer_inbox = Arc::new(peer_inbox);
 
     // execute the receiver in a new thread
+    let address = peer_address.clone();
     let peer_receiver_task = tokio::spawn(async move {
-        let mut listener = TcpListener::bind(peer_address).await?;
+        let mut listener = TcpListener::bind(address.to_string().parse::<SocketAddr>().unwrap()).await?;
         let receiver = Receiver::new(test_identity, peer_inbox);
         receiver.serve(&mut listener).await
     });
@@ -97,7 +109,7 @@ async fn test_prellblock() {
     select! {
         result = turi_task.fuse() => panic!("Turi ended: {:?}", result),
         result = peer_receiver_task.fuse() => panic!("Peer recceiver ended: {:?}", result),
-        _ = tokio::time::delay_for(Duration::from_secs(5)).fuse() => {
+        _ = tokio::time::sleep(Duration::from_secs(5)).fuse() => {
             // No error during startup
         },
     };

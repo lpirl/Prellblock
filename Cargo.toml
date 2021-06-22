@@ -1,6 +1,10 @@
 [workspace]
 members = [
+    "trdp-rs",
+    "connection",
+    "hello_world",
     "balise",
+    "genesis-wizard",
     "pinxit",
     "prellblock",
     "prellblock-client",

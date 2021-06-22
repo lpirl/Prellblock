@@ -5,25 +5,58 @@ mod error;
 pub use error::Error;
 
 use crate::{
-    consensus::{Block, BlockHash, BlockNumber},
+    consensus::{Block, BlockHash, BlockNumber, Body},
+    if_monitoring, time,
     transaction_checker::AccountChecker,
 };
 use pinxit::{PeerId, Signature};
 use prellblock_client_api::{
+    consensus::{GenesisTransactions, LeaderTerm, SignatureList},
     Filter, Query, ReadValuesOfPeer, ReadValuesOfSeries, Span, Transaction,
 };
 use sled::{Config, Db, Tree};
 use std::{
     collections::HashMap,
-    convert::TryInto,
     fmt::Debug,
     ops::{Bound, RangeBounds},
     str,
-    time::{Duration, SystemTime},
+    time::SystemTime,
 };
 
 const BLOCKS_TREE_NAME: &[u8] = b"blocks";
 const ACCOUNTS_TREE_NAME: &[u8] = b"accounts";
+
+if_monitoring! {
+    use lazy_static::lazy_static;
+    use prometheus::{register_int_gauge, register_histogram, IntGauge, Histogram};
+    lazy_static! {
+        static ref BLOCK_NUMBER: IntGauge = register_int_gauge!(
+            "block_storage_block_number",
+            "The number of blocks (=height) of the blockchain."
+        )
+        .unwrap();
+        static ref TRANSACTIONS_IN_BLOCK_STORAGE: IntGauge = register_int_gauge!(
+            "block_storage_num_txs",
+            "The aggregated number of transactions in the Block Storage."
+        )
+        .unwrap();
+
+        /// Measure the time a transaction takes from being created on the client until it reaches the DataStorage.
+        static ref BLOCKSTORAGE_ARRIVAL_TIME: Histogram = register_histogram!(
+            "blockstorage_arrival_time",
+            "The time a transaction takes from being created by the client until it reaches the BlockStorage.",
+            prometheus::exponential_buckets(0.05, 1.2, 35).unwrap()
+        ).unwrap();
+
+        /// Measure the size of the BlockStorage on the disk.
+        static ref BLOCKSTORAGE_SIZE: IntGauge = register_int_gauge!(
+            "blockstorage_size",
+            "Size of the BlockStorage on the disk."
+        )
+        .unwrap();
+
+    }
+}
 
 /// A `BlockStorage` provides persistent storage on disk.
 ///
@@ -36,25 +69,50 @@ pub struct BlockStorage {
 }
 
 impl BlockStorage {
-    /// Create a new `Store` at path.
-    pub fn new(path: &str) -> Result<Self, Error> {
+    /// Create a new `BlockStorage` at path.
+    pub fn new(
+        path: &str,
+        genesis_transactions: Option<GenesisTransactions>,
+    ) -> Result<Self, Error> {
         let config = Config::default()
             .path(path)
             .cache_capacity(8_000_000)
             .flush_every_ms(Some(400))
-            .snapshot_after_ops(100)
+            .snapshot_after_ops(1000000)
             .use_compression(false) // TODO: set this to `true`.
             .compression_factor(20);
 
         let database = config.open()?;
         let blocks = database.open_tree(BLOCKS_TREE_NAME)?;
+        if_monitoring!({
+            BLOCK_NUMBER.add(blocks.len() as i64);
+        });
         let accounts = database.open_tree(ACCOUNTS_TREE_NAME)?;
 
-        Ok(Self {
+        let block_storage = Self {
             database,
             blocks,
             accounts,
-        })
+        };
+
+        // Apply genesis block if `BlockStorage` is empty.
+        if block_storage.blocks.is_empty() {
+            let genesis_transactions = genesis_transactions
+                .expect("No genesis transactions were given, but BlockStorage is empty.");
+            let genesis_block = Block {
+                body: Body {
+                    leader_term: LeaderTerm::default(),
+                    height: BlockNumber::default(),
+                    prev_block_hash: BlockHash::default(),
+                    timestamp: genesis_transactions.timestamp,
+                    transactions: genesis_transactions.transactions,
+                },
+                signatures: SignatureList::default(),
+            };
+            block_storage.write_block(&genesis_block)?;
+        }
+
+        Ok(block_storage)
     }
 
     /// Write a value to the store.
@@ -75,25 +133,50 @@ impl BlockStorage {
         if block.body.height != block_number {
             return Err(Error::BlockHeightDoesNotFit);
         }
-
         let value = postcard::to_stdvec(&block)?;
         self.blocks
             .insert(block.block_number().to_be_bytes(), value)?;
+        log::trace!("Writing block #{}: {:#?}", block.block_number(), block);
 
+        // FIXME: only when cfg feature monitoring
+        let time = SystemTime::now();
         for transaction in &block.body.transactions {
             match transaction.unverified_ref() {
                 Transaction::KeyValue(params) => {
+                    if_monitoring! {{
+                        match time.duration_since(params.timestamp) {
+                            Ok(duration) => {
+                                BLOCKSTORAGE_ARRIVAL_TIME.observe(duration.as_secs_f64())
+                            }
+                            Err(err) => {
+                                log::warn!("Error calculating duration in blockstorage: {}", err)
+                            }
+                        }
+                    }}
                     self.write_value(
                         transaction.signer(),
                         &params.key,
                         &params.value,
+                        params.timestamp,
                         transaction.signature(),
                     )?;
                 }
                 // We don't need to do anything here. Account permissions are saved in the `WorldState`.
-                Transaction::UpdateAccount(_) => {}
+                Transaction::UpdateAccount(_)
+                | Transaction::CreateAccount(_)
+                | Transaction::DeleteAccount(_) => {}
             }
         }
+
+        if_monitoring!({
+            TRANSACTIONS_IN_BLOCK_STORAGE.add(block.body.transactions.len() as i64);
+            BLOCK_NUMBER.inc();
+            #[allow(clippy::cast_possible_wrap)]
+            match self.database.size_on_disk() {
+                Ok(size) => BLOCKSTORAGE_SIZE.set(size as i64),
+                Err(err) => log::warn!("Error calculating size of blockstorage on disk: {}", err),
+            }
+        });
 
         Ok(())
     }
@@ -106,6 +189,7 @@ impl BlockStorage {
         peer_id: &PeerId,
         key: &str,
         value: &[u8],
+        timestamp: SystemTime,
         signature: &Signature,
     ) -> Result<(), Error> {
         // Add the peer to the account db.
@@ -116,11 +200,14 @@ impl BlockStorage {
             .open_tree(peer_id.as_bytes())?
             .insert(key, &[])?;
 
-        // Insert value with timestamp into the time_series tree.
-        let time_series_name = time_series_name(peer_id, key);
-        let time = system_time_to_bytes(SystemTime::now());
-        let data = postcard::to_stdvec(&(value, signature))?;
-        self.database
+        // Insert value with timestamp of receival and the client's timestamp into the time_series tree.
+        let time_series_name = [peer_id.as_bytes(), key.as_bytes()].join(&0);
+        let write_time = SystemTime::now();
+
+        // Write time has to be the first one because it is used when reading.
+        let time = time::system_time_to_bytes(write_time);
+        let data = postcard::to_stdvec(&(value, timestamp, signature))?;
+git        self.database
             .open_tree(time_series_name)?
             .insert(time, data)?;
 
@@ -282,13 +369,15 @@ impl BlockStorage {
         Ok(transactions)
     }
 
-    // Read a timeseries from `Blockstorage` and transform the raw data into a `Transaction` tuple.
+    // Read a timeseries from `BlockStorage` and transform the raw data into a `Transaction` tuple.
+    // The first timestamp is the time, the value was stored on the RPU.
+    // The second one is the timestamp given by the client.
     fn read_time_series<R>(
         &self,
         time_series_name: &[u8],
         range: R,
     ) -> Result<
-        impl DoubleEndedIterator<Item = Result<(SystemTime, (Vec<u8>, Signature)), Error>>,
+        impl DoubleEndedIterator<Item = Result<(SystemTime, (Vec<u8>, SystemTime, Signature)), Error>>,
         Error,
     >
     where
@@ -297,11 +386,11 @@ impl BlockStorage {
         let iter = self
             .database
             .open_tree(time_series_name)?
-            .range(map_range_bound(range, |v| system_time_to_bytes(*v)))
+            .range(map_range_bound(range, |v| time::system_time_to_bytes(*v))) // RPU write time
             .map(|result| {
                 let (key, value) = result?;
-                let key = system_time_from_bytes(&key);
-                let value: (Vec<u8>, Signature) = postcard::from_bytes(&value)?;
+                let key = time::system_time_from_bytes(&key);
+                let value: (Vec<u8>, SystemTime, Signature) = postcard::from_bytes(&value)?;
                 Ok((key, value))
             });
         Ok(iter)
@@ -321,9 +410,16 @@ impl BlockStorage {
                         self.database.open_tree(time_series_name)?.pop_max()?;
                     }
                     // We don't need to do anything here. Account permissions are rolled back in the `WorldState`.
-                    Transaction::UpdateAccount(_) => {}
+                    Transaction::UpdateAccount(_)
+                    | Transaction::DeleteAccount(_)
+                    | Transaction::CreateAccount(_) => {}
                 }
             }
+
+            if_monitoring!({
+                TRANSACTIONS_IN_BLOCK_STORAGE.sub(block.body.transactions.len() as i64);
+                BLOCK_NUMBER.dec();
+            });
 
             Ok(Some(block))
         } else {
@@ -353,26 +449,5 @@ fn map_bound<T, U>(bound: Bound<T>, f: impl FnOnce(T) -> U) -> Bound<U> {
         Bound::Included(v) => Bound::Included(f(v)),
         Bound::Excluded(v) => Bound::Excluded(f(v)),
         Bound::Unbounded => Bound::Unbounded,
-    }
-}
-
-#[allow(clippy::cast_possible_truncation)]
-fn system_time_to_bytes(time: SystemTime) -> impl AsRef<[u8]> {
-    match time.duration_since(SystemTime::UNIX_EPOCH) {
-        Ok(duration) => duration.as_nanos() as i64,
-        Err(err) => -(err.duration().as_nanos() as i64),
-    }
-    .to_be_bytes()
-}
-
-#[allow(clippy::cast_sign_loss)]
-fn system_time_from_bytes(bytes: &[u8]) -> SystemTime {
-    let time = i64::from_be_bytes(bytes.try_into().unwrap());
-    if time >= 0 {
-        let duration = Duration::from_nanos(time as u64);
-        SystemTime::UNIX_EPOCH + duration
-    } else {
-        let duration = Duration::from_nanos((-(time + 1)) as u64 + 1);
-        SystemTime::UNIX_EPOCH - duration
     }
 }

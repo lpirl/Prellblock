@@ -1,4 +1,4 @@
-/target
+target
 *.local.*
 
 # macOS :(
@@ -11,6 +11,9 @@
 # Identities and stuff
 /config/*/*.key
 /config/*/*.pub
+/config/*/*.pem
+/config/*/*.pfx
+/config/genesis/genesis.yaml
 
 /config/subscription_config.toml
 
@@ -24,3 +27,9 @@
 /perf.data*
 /flamegraph*.svg
 /cargo-flamegraph.stacks
+
+# Benchmark data and plots
+benchmarking/*.dat
+benchmarking/*.png
+=======
+Cargo.lock

@@ -3,19 +3,20 @@
 use crate::{Error, Request};
 use serde::de::DeserializeOwned;
 use std::{
-    convert::TryInto,
     fmt::Debug,
     future::Future,
     io,
-    marker::{PhantomData, Unpin},
+    marker::PhantomData,
     net::SocketAddr,
     sync::Arc,
 };
 use tokio::{
     fs,
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpListener,
 };
+
+use connection::listener::{ Message, Listener, Connection };
+
 
 type ServerResult = Result<Response, Error>;
 
@@ -31,7 +32,7 @@ pub use native_tls::Identity as TlsIdentity;
 use ::{
     native_tls::{Identity, Protocol, TlsAcceptor},
     std::path::Path,
-    tokio_tls::TlsAcceptor as AsyncTlsAcceptor,
+    tokio_native_tls::TlsAcceptor as AsyncTlsAcceptor,
 };
 
 #[cfg(not(feature = "tls"))]
@@ -102,30 +103,31 @@ where
     }
 
     /// The main server loop.
-    pub async fn serve(self, listener: &mut TcpListener) -> Result<(), Error>
+    pub async fn serve(self, listener: &mut dyn Listener) -> Result<(), Error>
     where
         T: Send + 'static,
         H: Send + 'static,
     {
         log::info!(
             "Server is now listening on Port {}",
-            listener.local_addr()?.port()
+            listener.port()
         );
         loop {
             // TODO: Is there a case where we should continue to listen for incoming streams?
-            let (stream, _) = listener.accept().await?;
+            let connection = listener.accept().await?;
 
             let clone_self = self.clone();
 
+        
+
             // handle the client in a new thread
             tokio::spawn(async move {
-                let peer_addr = stream.peer_addr().expect("Peer address");
+                
+                let peer_addr = connection.peer_addr();
                 log::info!("Connected: {}", peer_addr);
 
-                let result = match clone_self.acceptor.accept(stream).await {
-                    Ok(stream) => clone_self.handle_client(peer_addr, stream).await,
-                    Err(err) => Err(err.into()),
-                };
+                let result =  clone_self.handle_client(peer_addr, connection).await;
+
                 match result {
                     Ok(()) => log::info!("Disconnected"),
                     Err(err) => log::warn!("Server error: {:?}", err),
@@ -134,24 +136,22 @@ where
         }
     }
 
-    async fn handle_client<S>(self, addr: SocketAddr, mut stream: S) -> Result<(), Error>
-    where
-        S: AsyncRead + AsyncWrite + Unpin,
+    async fn handle_client(self, addr: SocketAddr, mut connection: Box<dyn Connection>) -> Result<(), Error>
     {
         loop {
-            // read message length
-            let mut len_buf = [0; 4];
-            match stream.read_exact(&mut len_buf).await {
+
+            // read message
+
+            let res  = connection.read_message();
+           
+            match res {
                 Ok(_) => {}
                 Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => break,
                 Err(err) => return Err(Error::IO(err)),
-            };
+            }
 
-            let len = u32::from_le_bytes(len_buf) as usize;
-
-            // read message
-            let mut buf = vec![0; len];
-            stream.read_exact(&mut buf).await?;
+            let recv_message : Message = res.unwrap();
+            let buf = recv_message.to_buffer();   //vec![0; len];
 
             // handle the request
             let res = match self.handle_request(&addr, &buf).await {
@@ -160,15 +160,12 @@ where
             };
 
             // serialize response
-            let vec = vec![0; 4];
-            let mut vec = postcard::serialize_with_flavor(&res, postcard::flavors::StdVec(vec))?;
+            let vec = vec![0; 0];
+            let vec = postcard::serialize_with_flavor(&res, postcard::flavors::StdVec(vec))?;
 
-            // send response
-            let size: u32 = (vec.len() - 4)
-                .try_into()
-                .map_err(|_| Error::MessageTooLong)?;
-            vec[..4].copy_from_slice(&size.to_le_bytes());
-            stream.write_all(&vec).await?;
+            let resp_message : Message = Message::new(&vec);
+            
+            connection.write_message(&resp_message);
 
             // Simulate connection drop
             // let _ = stream.shutdown(std::net::Shutdown::Both);

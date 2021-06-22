@@ -9,15 +9,15 @@
 
 mod cli;
 
+use balise::Address;
 use cli::prelude::*;
 // use http::StatusCode;
 use prellblock_client::{account::Permissions, Client, Query};
 use rand::{
     rngs::{OsRng, StdRng},
-    seq::SliceRandom,
-    thread_rng, RngCore, SeedableRng,
+    RngCore, SeedableRng,
 };
-use std::{fs, net::SocketAddr, str, time::Instant};
+use std::{fs, str, time::Instant};
 use structopt::StructOpt;
 
 #[tokio::main]
@@ -28,111 +28,64 @@ async fn main() {
     let opt = Opt::from_args();
     log::debug!("Command line arguments: {:#?}", opt);
 
+    let turi_address: Address = opt
+        .turi_address
+        .parse()
+        .expect("Invalid turi address provided");
+
+    let identity_bytes =
+        fs::read_to_string(opt.private_key_file).expect("Could not open private key file.");
+
+    let client = create_client(turi_address.clone(), &identity_bytes);
+
     match opt.cmd {
-        Cmd::Set(cmd) => main_set(cmd).await,
-        Cmd::Benchmark(cmd) => main_benchmark(cmd).await,
-        Cmd::UpdateAccount(cmd) => main_update_account(cmd).await,
-        Cmd::GetValue(cmd) => main_get_value(cmd).await,
-        Cmd::GetAccount(cmd) => main_get_account(cmd).await,
-        Cmd::GetBlock(cmd) => main_get_block(cmd).await,
-        Cmd::CurrentBlockNumber => main_current_block_number().await,
+        Cmd::Set(cmd) => main_set(client, cmd).await,
+        Cmd::Benchmark(cmd) => main_benchmark(identity_bytes, turi_address, cmd).await,
+        Cmd::UpdateAccount(cmd) => main_update_account(client, cmd).await,
+        Cmd::CreateAccount(cmd) => main_create_account(client, cmd).await,
+        Cmd::DeleteAccount(cmd) => main_delete_account(client, cmd).await,
+        Cmd::GetValue(cmd) => main_get_value(client, cmd).await,
+        Cmd::GetAccount(cmd) => main_get_account(client, cmd).await,
+        Cmd::GetBlock(cmd) => main_get_block(client, cmd).await,
+        Cmd::CurrentBlockNumber => main_current_block_number(client).await,
     }
 }
 
-fn create_client(turi_address: SocketAddr, identity: &str) -> Client {
-    let identity = identity.parse().unwrap();
+fn create_client(turi_address: Address, identity: &str) -> Client {
+    let identity = identity
+        .parse()
+        .expect("Cannot read identity. Wrong format?");
     Client::new(turi_address, identity)
 }
 
-fn writer_client(turi_address: SocketAddr) -> Client {
-    create_client(
-        turi_address,
-        "406ed6170c8672e18707fb7512acf3c9dbfc6e5ad267d9a57b9c486a94d99dcc",
-    )
-}
-
-#[derive(StructOpt, Debug)]
-enum Command {
-    /// Transaction to set a key to a value.
-    Set {
-        /// The key of this transaction.
-        key: String,
-        /// The value of the corresponding key.
-        value: String,
-    },
-    /// Benchmark the blockchain.
-    #[structopt(name = "bench")]
-    Benchmark {
-        /// The name of the RPU to benchmark.
-        rpu_name: String,
-        /// The key to use for saving benchmark generated data.
-        key: String,
-        /// The number of transactions to send
-        transactions: u32,
-        /// The number of bytes each transaction's payload should have.
-        #[structopt(short, long, default_value = "8")]
-        size: usize,
-        /// The number of workers (clients) to use simultaneously.
-        #[structopt(short, long, default_value = "1")]
-        workers: usize,
-    },
-    /// Update the permissions for a given account.
-    #[structopt(name = "update")]
-    UpdateAccount {
-        /// The id of the account to update.
-        id: String,
-        /// The filepath to a yaml-file cotaining the accounts permissions.
-        permission_file: String,
-    },
-}
-
-fn reader_client() -> Client {
-    let mut rng = thread_rng();
-    let turi_address = Config::load().rpu.choose(&mut rng).unwrap().turi_address;
-
-    // matching peerid is: cb932f482dc138a76c6f679862aa3692e08c140284967f687c1eaf75fd97f1bc
-    create_client(
-        turi_address,
-        "03d738c972f37a6fd9b33278ac0c50236e45637bcd5aeee82d8323655257d256",
-    )
-}
-
-async fn main_set(cmd: cmd::Set) {
+async fn main_set(mut client: Client, cmd: cmd::Set) {
     let cmd::Set { key, value } = cmd;
 
-    let mut rng = thread_rng();
-    let turi_address = Config::load().rpu.choose(&mut rng).unwrap().turi_address;
-
     // execute the test client
-    match writer_client(turi_address).send_key_value(key, value).await {
+    match client.send_key_value(key, value).await {
         Err(err) => log::error!("Failed to send transaction: {}", err),
         Ok(()) => log::debug!("Transaction ok!"),
     }
 }
 
-async fn main_benchmark(cmd: cmd::Benchmark) {
+async fn main_benchmark(identity: String, turi_address: Address, cmd: cmd::Benchmark) {
     let cmd::Benchmark {
-        rpu_name,
         key,
         transactions,
         size,
         workers,
+        print_tps,
     } = cmd;
-
-    let turi_address = Config::load()
-        .rpu
-        .iter()
-        .find(|rpu| rpu.name == rpu_name)
-        .unwrap()
-        .turi_address;
 
     let mut worker_handles = Vec::new();
     for _ in 0..workers {
         let key = key.clone();
+        let address = turi_address.clone();
+        let identity = identity.clone();
         worker_handles.push(tokio::spawn(async move {
+            let mut client = create_client(address, &identity);
+            drop(identity);
             let mut rng = StdRng::from_rng(OsRng {}).unwrap();
-            let mut client = writer_client(turi_address);
-
             let start = Instant::now();
             let half_size = (size + 1) / 2;
             let mut bytes = vec![0; half_size];
@@ -169,20 +122,23 @@ async fn main_benchmark(cmd: cmd::Benchmark) {
             log::info!("Duration:               {:?}", time_diff);
             log::info!("Transaction time:       {:?}", avg_time_per_tx);
             log::info!("TPS (averaged):         {}", avg_tps);
+            if print_tps {
+                println!("{}", avg_tps);
+            }
         } else {
             log::error!("Failed to benchmark with worker {}", n);
         }
     }
 }
 
-async fn main_update_account(cmd: cmd::UpdateAccount) {
+async fn main_update_account(mut client: Client, cmd: cmd::UpdateAccount) {
     let cmd::UpdateAccount {
-        id,
+        peer_id,
         permission_file,
     } = cmd;
 
     // TestCLI: 256cdb0197402705f96d39eab7dd3d47a39cb75673a58852d83f666973d80e01
-    let id = id.parse().expect("Invalid account id given");
+    let peer_id = peer_id.parse().expect("Invalid account id given");
 
     // Read `Permissions` from the given file.
     let permission_file_content =
@@ -190,13 +146,42 @@ async fn main_update_account(cmd: cmd::UpdateAccount) {
     let permissions: Permissions =
         serde_yaml::from_str(&permission_file_content).expect("Invalid permission file content");
 
-    match reader_client().update_account(id, permissions).await {
+    match client.update_account(peer_id, permissions).await {
         Err(err) => log::error!("Failed to send transaction: {}", err),
         Ok(()) => log::debug!("Transaction ok!"),
     }
 }
 
-async fn main_get_value(cmd: cmd::GetValue) {
+async fn main_create_account(mut client: Client, cmd: cmd::CreateAccount) {
+    let cmd::CreateAccount {
+        peer_id,
+        name,
+        permission_file,
+    } = cmd;
+
+    let peer_id = peer_id.parse().expect("Invalid account id given.");
+    // Read `Permissions` from the given file.
+    let permission_file_content =
+        fs::read_to_string(permission_file).expect("Could not read permission file.");
+    let permissions: Permissions =
+        serde_yaml::from_str(&permission_file_content).expect("Invalid permission file content.");
+
+    match client.create_account(peer_id, name, permissions).await {
+        Err(err) => log::error!("Failed to send transaction: {}", err),
+        Ok(()) => log::debug!("Transaction ok!"),
+    }
+}
+
+async fn main_delete_account(mut client: Client, cmd: cmd::DeleteAccount) {
+    let cmd::DeleteAccount { peer_id } = cmd;
+    let peer_id = peer_id.parse().expect("Invalid account id given.");
+    match client.delete_account(peer_id).await {
+        Err(err) => log::error!("Failed to send transaction: {}", err),
+        Ok(()) => log::debug!("Transaction ok!"),
+    }
+}
+
+async fn main_get_value(mut client: Client, cmd: cmd::GetValue) {
     let cmd::GetValue {
         peer_id,
         filter,
@@ -211,10 +196,7 @@ async fn main_get_value(cmd: cmd::GetValue) {
         skip: skip.map(|skip| skip.0),
     };
 
-    match reader_client()
-        .query_values(vec![peer_id], filter.0, query)
-        .await
-    {
+    match client.query_values(vec![peer_id], filter.0, query).await {
         Ok(values) => {
             if values.is_empty() {
                 log::warn!("No values retrieved.");
@@ -232,11 +214,12 @@ async fn main_get_value(cmd: cmd::GetValue) {
                     } else {
                         log::info!("  Key {:?}:", key);
                     }
-                    for (timestamp, value) in values_by_key {
+                    for (timestamp, (value, client_time, signature)) in values_by_key {
                         log::info!(
-                            "    {}: {:?}",
+                            "    {} (Client Timestamp: {}): {:?}",
                             humantime::format_rfc3339_millis(timestamp),
-                            value
+                            humantime::format_rfc3339_millis(client_time),
+                            (value, signature)
                         );
                     }
                 }
@@ -246,10 +229,10 @@ async fn main_get_value(cmd: cmd::GetValue) {
     }
 }
 
-async fn main_get_account(cmd: cmd::GetAccount) {
+async fn main_get_account(mut client: Client, cmd: cmd::GetAccount) {
     let cmd::GetAccount { peer_ids } = cmd;
 
-    match reader_client().query_account(peer_ids).await {
+    match client.query_account(peer_ids).await {
         Ok(accounts) => {
             if accounts.is_empty() {
                 log::warn!("No accounts retrieved.");
@@ -264,10 +247,10 @@ async fn main_get_account(cmd: cmd::GetAccount) {
     }
 }
 
-async fn main_get_block(cmd: cmd::GetBlock) {
+async fn main_get_block(mut client: Client, cmd: cmd::GetBlock) {
     let cmd::GetBlock { filter } = cmd;
 
-    match reader_client().query_block(filter.0).await {
+    match client.query_block(filter.0).await {
         Ok(block_vec) => {
             if block_vec.is_empty() {
                 log::warn!("No blocks retrieved for the given range.");
@@ -282,8 +265,8 @@ async fn main_get_block(cmd: cmd::GetBlock) {
     }
 }
 
-async fn main_current_block_number() {
-    match reader_client().current_block_number().await {
+async fn main_current_block_number(mut client: Client) {
+    match client.current_block_number().await {
         Err(err) => log::error!("Failed to retrieve current block number: {}", err),
         Ok(block_number) => log::info!(
             "The current block number is: {:?}. The last committed block number is: {:?}.",

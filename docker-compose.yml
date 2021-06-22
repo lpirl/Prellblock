@@ -1,0 +1,79 @@
+version: "3.3"
+
+services:
+    emily:
+        command: config/emily/emily.toml config/genesis/genesis.yaml
+        build: .
+        volumes:
+            - "${SRCPATH}/config:/prellblock/config"
+            - "${SRCPATH}/blocks:/prellblock/blocks"
+        networks:
+            prellblock_net:
+                ipv4_address: 172.28.0.10
+    james:
+        command: config/james/james.toml config/genesis/genesis.yaml
+        build: .
+        volumes:
+            - "${SRCPATH}/config:/prellblock/config"
+            - "${SRCPATH}/blocks:/prellblock/blocks"
+        environment:
+            - RUST_LOG=prellblock::batcher=trace
+        networks:
+            prellblock_net:
+                ipv4_address: 172.28.0.11
+    percy:
+        command: config/percy/percy.toml config/genesis/genesis.yaml
+        build: .
+        volumes:
+            - "${SRCPATH}/config:/prellblock/config"
+            - "${SRCPATH}/blocks:/prellblock/blocks"
+        networks:
+            prellblock_net:
+                ipv4_address: 172.28.0.12
+    thomas:
+        command: config/thomas/thomas.toml config/genesis/genesis.yaml
+        build: .
+        volumes:
+            - "${SRCPATH}/config:/prellblock/config"
+            - "${SRCPATH}/blocks:/prellblock/blocks"
+        networks:
+            prellblock_net:
+                ipv4_address: 172.28.0.13
+    prometheus:
+        image: prom/prometheus
+        volumes:
+            - ${SRCPATH}/benchmarking/prometheus/config:/prometheus
+            - ${SRCPATH}/benchmarking/prometheus/data/prometheus:/data
+        command:
+            - '--config.file=/prometheus/prometheus.yml'
+            - '--storage.tsdb.path=/tmp/data'
+        ports:
+            - 9090:9090
+        restart: unless-stopped
+        networks: 
+            prellblock_net:
+
+    grafana:
+        image: grafana/grafana:latest
+        restart: unless-stopped
+        depends_on:
+            - prometheus
+        ports:
+            - "3000:3000"
+        volumes:
+            - ${SRCPATH}/benchmarking/grafana/config/grafana.ini:/etc/grafana/grafana.ini
+            - ${SRCPATH}/benchmarking/grafana/config/datasources:/etc/grafana/provisioning/datasources/
+            - ${SRCPATH}/benchmarking/grafana/config/dashboards:/etc/grafana/provisioning/dashboards/
+            - ${SRCPATH}/benchmarking/grafana/data/grafana:/var/lib/grafana
+        environment:
+            - GF_SECURITY_ADMIN_PASSWORD=prellblock
+            - GF_USERS_ALLOW_SIGN_UP=false
+        networks: 
+            prellblock_net:
+
+networks:
+    prellblock_net:
+        ipam:
+            driver: default
+            config:
+                - subnet: 172.28.0.0/16
