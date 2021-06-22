@@ -1,5 +1,4 @@
 use structopt::StructOpt;
-
 #[derive(StructOpt, Debug)]
 pub struct Opt {
     /// Private key file path.
@@ -42,7 +41,6 @@ pub enum Cmd {
     #[structopt(name = "current_block_number")]
     CurrentBlockNumber,
 }
-
 pub mod cmd {
     use pinxit::PeerId;
     use prellblock_client::{consensus::BlockNumber, Filter, Span};

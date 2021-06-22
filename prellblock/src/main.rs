@@ -77,7 +77,14 @@ async fn main() {
         BlockStorage::new(&private_config.block_path, genesis_transactions).unwrap();
     let world_state = WorldStateService::from_block_storage(&block_storage).unwrap();
 
-    let consensus = Consensus::new(identity, block_storage.clone(), world_state.clone()).await;
+    let consensus = Consensus::new(
+        identity,
+        block_storage.clone(),
+        world_state.clone(),
+        #[cfg(feature = "subscriptions")]
+        subscription_manager,
+    )
+    .await;
 
     let broadcaster = Broadcaster::new(world_state.clone());
     let broadcaster = Arc::new(broadcaster);

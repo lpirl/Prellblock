@@ -2,6 +2,8 @@ use balise::{server::TlsIdentity, Address};
 use futures::{select, FutureExt};
 use im::Vector;
 use pinxit::Identity;
+#[cfg(feature = "subscriptions")]
+use prellblock::subscriptions::SubscriptionManager;
 use prellblock::{
     batcher::Batcher,
     block_storage::BlockStorage,
@@ -49,7 +51,17 @@ async fn test_prellblock() {
         world_state.save();
     }
 
-    let consensus = Consensus::new(identity, block_storage.clone(), world_state.clone()).await;
+    #[cfg(feature = "subscriptions")]
+    let subscription_manager = SubscriptionManager::new(block_storage.clone()).await;
+
+    let consensus = Consensus::new(
+        identity,
+        block_storage.clone(),
+        world_state.clone(),
+        #[cfg(feature = "subscriptions")]
+        subscription_manager,
+    )
+    .await;
 
     let broadcaster = Broadcaster::new(world_state.clone());
     let broadcaster = Arc::new(broadcaster);

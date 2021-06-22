@@ -14,6 +14,10 @@ license = "MIT OR Apache-2.0"
 default = ["monitoring"]
 monitoring = ["prometheus", "hyper"]
 
+[features]
+default = []
+subscriptions = ["async-trait", "http", "reqwest", "serde_json"]
+
 [dependencies]
 connection = { path = "../connection" }
 balise = { path = "../balise", features = ["server", "client", "tls"] }
@@ -32,6 +36,7 @@ pretty_env_logger = "0.4.0"
 prometheus = { version = "0.9.0", git = "https://github.com/felix-gohla/rust-prometheus.git#master", features = ["nightly"], optional = true }
 rand = "0.7.3"
 rayon = "1.1"
+reqwest = { version = "0.10.6", optional = true }
 serde = { version = "1.0.105", features = ["derive", "rc"] }
 serde_yaml = "0.8.13"
 slab = "0.4.2"
