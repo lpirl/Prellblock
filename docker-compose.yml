@@ -2,15 +2,22 @@ version: "3.3"
 
 services:
     emily:
+        #entrypoint: tail
+        #command: -F /var/log/messages
+        entrypoint: /prellblock/target/release/prellblock
         command: config/emily/emily.toml config/genesis/genesis.yaml
         build: .
         volumes:
             - "${SRCPATH}/config:/prellblock/config"
             - "${SRCPATH}/blocks:/prellblock/blocks"
+            - "${SRCPATH}/perf:/prellblock/perf"
+        cap_add:
+            - ALL
         networks:
             prellblock_net:
                 ipv4_address: 172.28.0.10
     james:
+        entrypoint: /prellblock/target/release/prellblock
         command: config/james/james.toml config/genesis/genesis.yaml
         build: .
         volumes:
@@ -22,6 +29,7 @@ services:
             prellblock_net:
                 ipv4_address: 172.28.0.11
     percy:
+        entrypoint: /prellblock/target/release/prellblock
         command: config/percy/percy.toml config/genesis/genesis.yaml
         build: .
         volumes:
@@ -31,6 +39,7 @@ services:
             prellblock_net:
                 ipv4_address: 172.28.0.12
     thomas:
+        entrypoint: /prellblock/target/release/prellblock
         command: config/thomas/thomas.toml config/genesis/genesis.yaml
         build: .
         volumes:
