@@ -71,11 +71,16 @@ impl PRaftBFT {
         identity: Identity,
         block_storage: BlockStorage,
         world_state: WorldStateService,
+        #[cfg(feature = "subscriptions")] subscription_manager: SubscriptionManager,
     ) -> Arc<Self> {
         log::debug!("Started consensus.");
 
-        let transaction_applier =
-            TransactionApplier::new(block_storage.clone(), world_state.clone());
+        let transaction_applier = TransactionApplier::new(
+            block_storage.clone(),
+            world_state.clone(),
+            #[cfg(feature = "subscriptions")]
+            subscription_manager,
+        );
 
         // Setup core
         let core = Arc::new(Core::new(

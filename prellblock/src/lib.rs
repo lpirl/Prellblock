@@ -22,6 +22,8 @@ pub mod data_broadcaster;
 pub mod data_storage;
 pub mod peer;
 pub mod reader;
+#[cfg(feature = "subscriptions")]
+pub mod subscriptions;
 pub mod time;
 pub mod transaction_checker;
 pub mod turi;

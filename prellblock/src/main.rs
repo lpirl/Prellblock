@@ -16,6 +16,8 @@
 use balise::server::TlsIdentity;
 use futures::future;
 use pinxit::Identity;
+#[cfg(feature = "subscriptions")]
+use prellblock::subscriptions::SubscriptionManager;
 use prellblock::{
     batcher::Batcher,
     block_storage::BlockStorage,
@@ -75,9 +77,20 @@ async fn main() {
 
     let block_storage =
         BlockStorage::new(&private_config.block_path, genesis_transactions).unwrap();
+
+    #[cfg(feature = "subscriptions")]
+    let subscription_manager = SubscriptionManager::new(block_storage.clone()).await;
+
     let world_state = WorldStateService::from_block_storage(&block_storage).unwrap();
 
-    let consensus = Consensus::new(identity, block_storage.clone(), world_state.clone()).await;
+    let consensus = Consensus::new(
+        identity,
+        block_storage.clone(),
+        world_state.clone(),
+        #[cfg(feature = "subscriptions")]
+        subscription_manager,
+    )
+    .await;
 
     let broadcaster = Broadcaster::new(world_state.clone());
     let broadcaster = Arc::new(broadcaster);
