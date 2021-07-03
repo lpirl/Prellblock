@@ -4,7 +4,7 @@
 
 ### Use Docker-Container
 
-Using the VSCode *Remote - Containers* extension and run it in docker container. 
+Using the VSCode *Remote - Containers* extension and run it in docker container.
 
 ### copy trdp lib
 
@@ -13,7 +13,7 @@ cp trdp/lib/libtrdpap.a /usr/local/lib/
 cp -r trdp/include/trdp /usr/local/include/trdp
 ```
 
-### create 
+### create
 ```
 cargo build
 ```
@@ -26,7 +26,7 @@ cargo run --bin md_listener
 ```
 ```
 cd trdp
-./test_mdSingle -o 127.0.0.1 -t 127.0.0.1 
+./test_mdSingle -o 127.0.0.1 -t 127.0.0.1
 ```
 
 
@@ -50,8 +50,8 @@ cargo run --bin md_listener
 ```
 ```
 cd hello_world
-cargo run --bin md_sender -- 17225 
-cargo run --bin md_sender -- 8080 
+cargo run --bin md_sender -- 17225
+cargo run --bin md_sender -- 8080
 ```
 
 
@@ -85,4 +85,3 @@ default is warning
 ```
 export RUST_LOG=info
 ```
-

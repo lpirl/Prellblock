@@ -1,11 +1,11 @@
-FROM rust:latest 
+FROM rust:latest
 
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     build-essential \
     libssl-dev \
-    musl-tools \ 
+    musl-tools \
     && true
 
 
@@ -27,7 +27,7 @@ WORKDIR /prellblock
 
 #RUN rustup target add ${TARGET}
 
-RUN RUST_BACKTRACE=full 
+RUN RUST_BACKTRACE=full
 
 RUN cargo build --release
 
