@@ -6,14 +6,7 @@
 
 Using the VSCode *Remote - Containers* extension and run it in docker container.
 
-### copy trdp lib
-
-```
-cp trdp/lib/libtrdpap.a /usr/local/lib/
-cp -r trdp/include/trdp /usr/local/include/trdp
-```
-
-### create
+### build
 ```
 cargo build
 ```

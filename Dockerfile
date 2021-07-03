@@ -15,8 +15,6 @@ RUN apt-get -y install \
              telnet \
              tcpdump
 
-COPY trdp/lib/libtrdpap.a /usr/local/lib/
-COPY trdp/include/trdp /usr/local/include/trdp
 
 #profiling
 RUN apt-get -y install linux-tools-4.19 moreutils
