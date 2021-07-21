@@ -11,12 +11,13 @@ mod cli;
 
 use balise::Address;
 use cli::prelude::*;
+use csv::Reader;
 use prellblock_client::{account::Permissions, Client, Query};
 use rand::{
     rngs::{OsRng, StdRng},
     RngCore, SeedableRng,
 };
-use std::{fs, str, time::Instant};
+use std::{fs, str, time::{Instant, Duration}};
 use structopt::StructOpt;
 
 #[tokio::main]
@@ -40,6 +41,7 @@ async fn main() {
     match opt.cmd {
         Cmd::Set(cmd) => main_set(client, cmd).await,
         Cmd::Benchmark(cmd) => main_benchmark(identity_bytes, turi_address, cmd).await,
+        Cmd::CsvReplay(cmd) => main_csv_replay(client, cmd).await,
         Cmd::UpdateAccount(cmd) => main_update_account(client, cmd).await,
         Cmd::CreateAccount(cmd) => main_create_account(client, cmd).await,
         Cmd::DeleteAccount(cmd) => main_delete_account(client, cmd).await,
@@ -127,6 +129,69 @@ async fn main_benchmark(identity: String, turi_address: Address, cmd: cmd::Bench
         } else {
             log::error!("Failed to benchmark with worker {}", n);
         }
+    }
+}
+
+async fn main_csv_replay(mut client: Client, cmd: cmd::CsvReplay) {
+    let cmd::CsvReplay {
+        csv_file,
+    } = cmd;
+    let mut reader = Reader::from_path(csv_file)
+                             .expect("Cannot open CSV file.");
+
+    let mut headers: Vec<String> = Vec::new();
+
+    // collect column names
+    for header in reader
+                  .headers()
+                  .expect("Error reading headers from CSV files." )
+                  .iter()
+                  .skip(1) {
+        headers.push(header.to_string());
+    }
+
+    let mut next_release = Instant::now();
+    let mut prev_timestamp: Option<f64> = None;
+
+    for result in reader.records() {
+        let row = result.expect("Error reading row from CSV file.");
+        let mut row_iter = row.iter();
+
+        let current_timestamp: f64 = row_iter
+                                  .next()
+                                  .expect("Error reading first column.")
+                                  .parse()
+                                  .expect("Error parsing timestamp.");
+
+        if !prev_timestamp.is_none() {
+
+            // csv data must be sorted by timestamp
+            assert!(current_timestamp >= prev_timestamp.unwrap());
+
+            next_release += Duration::from_secs_f64(
+                current_timestamp - prev_timestamp.unwrap()
+            );
+            if next_release < Instant::now() {
+                log::warn!("System cannot keep up replaying data fast \
+                            enough. {} seconds behind.",
+                            (Instant::now() - next_release).as_secs_f64())
+            } else {
+                // sorry but busy waiting is most precise and wait times
+                // are expected to be just a few seconds
+                while Instant::now() < next_release {}
+            }
+        }
+
+        for (key, value) in headers.iter().zip(row_iter) {
+            match client.send_key_value(key.to_string(), value).await {
+                Ok(()) => log::debug!("Transaction ok!"),
+                Err(err) => log::error!(
+                    "Failed to send transaction: {}", err
+                )
+            }
+        }
+
+        prev_timestamp = Some(current_timestamp);
     }
 }
 

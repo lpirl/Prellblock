@@ -18,6 +18,22 @@ pub enum Cmd {
     /// Run a benchmark.
     #[structopt(name = "bench")]
     Benchmark(cmd::Benchmark),
+    /// Replay data from a CSV file.
+    ///
+    /// The first row is expected to contain a header, i.e., column
+    /// names. Subsequent rows are expected to contain data.
+    /// The first column of the data rows is expected to be a timestamp
+    /// (in seconds, float).
+    /// Data rows will be processed according to their timestamp,
+    /// relative the the first timestamp.
+    /// Values from the following columns will be set as keys (column
+    /// header) and values ("cell" contents).
+    /// As a result, data emission is being "replayed" according to the
+    /// timestamps.
+    ///
+    /// Hint: to feed from stdin, use /dev/fd/0 as input file name.
+    #[structopt(name = "csv_replay")]
+    CsvReplay(cmd::CsvReplay),
     /// Update an account.
     #[structopt(name = "update_account")]
     UpdateAccount(cmd::UpdateAccount),
@@ -74,6 +90,12 @@ pub mod cmd {
         /// Print the TPS number to stdout.
         #[structopt(short, long)]
         pub print_tps: bool,
+    }
+
+    /// Replay setting key/values from CSV file
+    #[derive(StructOpt, Debug)]
+    pub struct CsvReplay {
+        pub csv_file: String,
     }
 
     /// Update the permissions for a given account.
